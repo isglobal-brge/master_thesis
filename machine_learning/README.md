@@ -1,15 +1,16 @@
 # Title
 
-##### Machine learning methods in personalized medicine: application to genomic data in Alzheimer’s disease.
+Machine learning methods in personalized medicine: application to genomic data in Alzheimer’s disease.
 
-# Author
+# Author and advisor
 
-##### Mireia Ballestà López
+Author: Mireia Ballestà López
+Advisor: Juan R González
 
-# University
+# Master program and University
 
-##### Universitat de Vic
+Omic Data Analysis, Universitat de Vic (UVic)
 
 # Date
 
-##### September 2018
+September 2018
