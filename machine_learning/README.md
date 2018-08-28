@@ -4,8 +4,8 @@ Machine learning methods in personalized medicine: application to genomic data i
 
 # Author and advisor
 
-Author: Mireia Ballestà López
-Advisor: Juan R González
+- Author: Mireia Ballestà López
+- Advisor: Juan R González
 
 # Master program and University
 
