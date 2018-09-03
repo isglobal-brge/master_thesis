@@ -1,0 +1,81 @@
+---
+title: "MADloy Analysis"
+author: "Celia Mallafré"
+date: "3/9/2018"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Libraries
+
+The package needed for this analysis is the MADloy one:
+
+```{}
+devtools::install_github("isglobal-brge/MADloy_v1")
+library(MADloy)
+```
+
+
+## MADloy Analysis
+
+With the path of the Raw_Data folder created before and that contains the .txt files, I can know with individuals present LOY event:
+
+```{}
+rawDataPath <- "~/data/PublicData/STUDY/dbGaP/phs000306.v4.p1_GENEVA_Prostate_Cancer/PhenoGenotypeFiles/RootStudyConsentSet_phs000306.GENEVA_MEC_ProstateCancer.v4.p1.c2.GRU-MDS/GenotypeFiles/phg000100.v1.p1.GENEVA_MEC_ProstateCancer_AA.genotype-calls-indfmt.c2.set3/Raw_Data"
+rawDataPath
+
+files <- dir(rawDataPath)
+length(files)
+```
+
+
+### Filtering females samples
+
+The loss of chromosome Y should be present only in males, that is the reason why I filter my samples and remove the females samples. In some datasets, there are only males, so this step has to be skiped:
+
+
+```{}
+sex <- checkSex(rawDataPath)
+sex
+
+pdf("sex.pdf")
+plot(sex)
+dev.off()
+ 
+sex$par$files[sex$class=="FEMALE"] # Identification of the female samples
+files.males <- sex$par$files[sex$class!="FEMALE"] # Removal of the samples
+```
+
+
+Once the data only contains male samples, I can perform the LOY detection:
+
+```{}
+ex <- madloy(files.males, mc.cores=1)
+ex
+```
+
+
+If I haven't performed the sex filtering, I can analyze the samples directly form the path of the Raw_Data folder:
+
+```{}
+ex <- madloy(rawDataPath, mc.cores=20)
+ex
+
+pdf("ex.pdf")
+plot(ex, print.labels=T, thereshold=-0.3) #LOY event between -0.2 and -0.8 range of Y-axis
+dev.off()
+```
+
+
+The last step of the analysis is to ge which individuals have or not LOY:
+
+```{}
+LOY <- getLOY(ex)
+loy <- LOY$class
+```
+
