@@ -1,0 +1,206 @@
+---
+title: "Transf.2.RawData pipeline"
+author: "Celia Mallafré"
+date: "3/9/2018"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+
+## Libraries
+
+The libraries needed in order to perfomr this pipeline are:
+
+```{}
+library(data.table)
+library(parallel)
+library(BiocStyle)
+library(ecolitk)
+library(TEQC)
+library(MADloy)
+```
+
+
+## Load the SNP Annotation file
+
+The first step of this pipelines is to load the SNP annotation file. This files is used to be in a directory called Marker Info.
+
+This file can be in different extensions. Sometimes, the file contains some rows that are not important, so I modify this file before loading it in order to have only the SNP rows:
+
+```{}
+setwd("~/data/PublicData/STUDY/dbGaP/phs000306.v4.p1_GENEVA_Prostate_Cancer/PhenoGenotypeFiles/RootStudyConsentSet_phs000306.GENEVA_MEC_ProstateCancer.v4.p1.c2.GRU-MDS/GenotypeFiles/phg000100.v1.p1.GENEVA_MEC_ProstateCancer_AA.marker-info.MULTI")
+
+head -n 1199194 Human1M-Duov3_B.csv | tail -n +8 > Human1M-Duov3_B.csv_nohead_notail.csv
+
+snps <- fread(input = "cat Human1M-Duov3_B.csv_nohead_notail.csv | cut -d, -f2,10,11", header=T)
+```
+
+
+Once this is loaded, I had to set the names needed for MADloy, this column names have to be: SNP_id, chr and position, in this order:
+
+```{}
+setnames(snps, c("SNP_id", "chr", "position"))
+setkey(snps, SNP_id)
+```
+
+
+## Load the files
+
+The next step is to load the files that has to be analyzed. This function loads the files, maintin only the needed columns, in this case "SNP_id", "intensity_X" and "intensity_Y" and it orders each SNP according to the SNP annotation file. This function needs teh exttension of the files in order to read and load them. The files have to be loaded as numeric data:
+
+```{}
+setwd("~/data/PublicData/STUDY/dbGaP/phs000306.v4.p1_GENEVA_Prostate_Cancer/PhenoGenotypeFiles/RootStudyConsentSet_phs000306.GENEVA_MEC_ProstateCancer.v4.p1.c2.GRU-MDS/GenotypeFiles/phg000100.v1.p1.GENEVA_MEC_ProstateCancer_AA.genotype-calls-indfmt.c2.set6")
+
+samples <- list.files(pattern = ".ind.gz")
+
+read.gz <- function(x, snps){
+  dta <- fread(paste0("zcat ", x), showProgress=FALSE, skip=2, drop=c(2:4, 7:8))
+  setnames(dta, c("SNP_id", "intensity_X", "intensity_Y"))
+  dta <- dta[!duplicated(dta$SNP_id)]
+  setkey(dta, SNP_id)
+  dta <- dta[snps]
+  dta <- dta[,.(intensity_X, intensity_Y)]
+  dta <- dta[, lapply(.SD, as.numeric)]
+  return(dta)
+}
+modif.gz <- function(x){ # x should be the extention of the files
+  all.files <- list.files(pattern = x)
+  gz.files <- mclapply(all.files,  FUN = read.gz, snps=snps, mc.cores=20)
+  return(gz.files)
+}
+
+dd <- modif.gz("ind.gz")
+```
+
+
+This pipeline creates all the objects needed for MADloy as separated object in order to reduce the memory used. In order to make this possible, I have to put together the SNP annotation file and the data loaded and merge them as just one object. Also, I load one file in order to modify the SNP annotation file according to the snps presented in my data and remove those snps that are no present in my data:
+
+```{}
+dd.snps <- as.character(unlist(fread("zcat < 4811441052_R01C02.ind.gz | cut -f1", showProgress=FALSE, skip=2)))
+
+snps <- snps[dd.snps]
+
+sel <- is.na(snps$position)
+snps <- snps[!sel]
+
+dd <- mclapply(dd, function(x){ x[, lapply(.SD, as.numeric)]})
+```
+
+
+## Log.R.Ratio creation
+
+A crucial data needed in MADloy is the Log.R.Ratio, a data created from the X and Y intensities. The Log.R.Ratio follows the equation: Log.R.Ratio(n) =  (X(n)+Y(n))/(Expected Intensity). The expected intensity is calculated as the sum of all the X intensities and all thee Y intensities, divided by the number of SNPs of each file. In this step, is important to remove the NAs present in the data:
+
+```{}
+R <- mclapply(dd, function(x) {apply(x, 1, sum, na.rm=T)}, mc.cores=20)
+R.matrix <- as.matrix(do.call(cbind, R))
+R.exp.sum <- apply(R.matrix, 1, sum, na.rm=T)
+R.exp.N <- apply(R.matrix != 0, 1, sum)
+R.exp <- R.exp.sum/R.exp.N
+getLRR <- function(x){
+  ff <- function(y){
+    ans <- log(y/R.exp)
+    ans[is.na(ans)| is.infinite(ans)] <- 0
+    ans
+  }
+  LRR <- mclapply(x, ff, mc.cores=20)
+  return(LRR)
+}
+
+LRR <- getLRR(R)
+```
+
+
+## B Allele Frequency creation
+
+Another important data is the B Allele Frequency. In order to calculate this, thetas are needed. With the thetas, I calculate the theoretical thetas for the homozygous and heterozygous. With this theoretical thetas I compare my thetas in order to calculate the B Allele frequency for each SNP:
+
+```{}
+ComputeThetas <- function(x){ # x should be My_Data
+  theta <- (2/pi)*atan(x$intensity_X/x$intensity_Y)
+  theta
+}
+
+thetas <- mclapply(dd, ComputeThetas, mc.cores=5)
+thetas.matrix <- as.matrix(do.call(cbind, thetas))
+
+AAsel <- apply(thetas.matrix, 1, function(x) {which(x <= 0.175 & !is.na(x))})
+ABsel <- apply(thetas.matrix, 1, function(x) {which(x > 0.175 & x < 0.825 & !is.na(x))})
+BBsel <- apply(thetas.matrix, 1, function(x) {which(x >= 0.875 & !is.na(x))})
+
+R_AA <- as.vector(unlist(mclapply(1:length(AAsel), function(x) { mean(R.matrix[x, AAsel[[x]]], na.rm=TRUE)}, mc.cores=1)))
+theta_AA <- as.vector(unlist(mclapply(1:length(AAsel), function(x) { mean(thetas.matrix[x, AAsel[[x]]], na.rm=TRUE)}, mc.cores=1)))
+R_AB <- as.vector(unlist(mclapply(1:length(AAsel), function(x) { mean(R.matrix[x, ABsel[[x]]], na.rm=TRUE)}, mc.cores=1)))
+theta_AB <- as.vector(unlist(mclapply(1:length(AAsel), function(x) { mean(thetas.matrix[x, ABsel[[x]]], na.rm=TRUE)}, mc.cores=1)))
+R_BB <- as.vector(unlist(mclapply(1:length(AAsel), function(x) { mean(R.matrix[x, BBsel[[x]]], na.rm=TRUE)}, mc.cores=1)))
+theta_BB <- as.vector(unlist(mclapply(1:length(AAsel), function(x) { mean(thetas.matrix[x, BBsel[[x]]], na.rm=TRUE)}, mc.cores=1)))
+
+
+checkBAF <- function(y, x){
+  if(is.na(R_AA[y]) & is.na(R_AB[y])) { # Homocigoto BB
+    BAF <- ifelse(thetas[[x]][y] < theta_BB[y], 0.5+0.5*(thetas[[x]][y]-0.5)/(theta_BB[y]-0.5),
+                  ifelse(thetas[[x]][y] >= theta_BB[y], 1, NA))
+    res <- BAF
+  } else {
+    if (is.na(R_AB[y]) && is.na(R_BB[y])) { # Homocigoto AA
+      BAF <- ifelse(thetas[[x]][y] <= theta_AA[y], 0,
+                    ifelse(thetas[[x]][y] > theta_AA[y], 0.5*(thetas[[x]][y]-theta_AA[y])/(0.5-theta_AA[y]), NA))
+      res <- BAF
+    } else {
+      if(is.na(R_AA[y])) { # Sin homocigotos AA
+        BAF <- ifelse(thetas[[x]][y] < theta_AB[y], 0.5,
+                      ifelse(thetas[[x]][y] >= theta_AB[y] & thetas[[x]][y] < theta_BB[y], 0.5+0.5*(thetas[[x]][y]-theta_AB[y])/(theta_BB[y]-theta_AB[y]),
+                             ifelse(thetas[[x]][y] >= theta_BB[y], 1, NA)))
+        res <- BAF
+      } else {
+        if(is.na(R_BB[y])) { # Sin homocigotos BB
+          BAF <- ifelse(thetas[[x]][y] <= theta_AA[y], 0,
+                        ifelse(thetas[[x]][y] > theta_AA[y] & thetas[[x]][y] < theta_AB[y], 0.5*(thetas[[x]][y]-theta_AA[y])/(theta_AB[y]-theta_AA[y]),
+                               ifelse(thetas[[x]][y] >= theta_AB[y], 0.5, NA)))
+          res <- BAF
+        } else {
+          BAF <- ifelse(thetas[[x]][y] <= theta_AA[y], 0,
+                        ifelse(thetas[[x]][y] > theta_AA[y] & thetas[[x]][y] < theta_AB[y], 0.5*(thetas[[x]][y]-theta_AA[y])/(theta_AB[y]-theta_AA[y]),
+                               ifelse(thetas[[x]][y] >= theta_AB[y] & thetas[[x]][y] < theta_BB[y], 0.5+0.5*(thetas[[x]][y]-theta_AB[y])/(theta_BB[y]-theta_AB[y]),
+                                      ifelse(thetas[[x]][y] >= theta_BB[y], 1, NA))))
+          res <- BAF
+        }
+      }
+    }
+  }
+  return(res)
+}
+
+
+getBAF <- function(x) {
+  res <- as.vector(unlist(mclapply(1:nrow(snps), checkBAF, x=x, mc.cores=1)))
+}
+
+
+BAF <- lapply(1:length(dd), getBAF)
+```
+
+
+## RawData files
+
+The last step of this pipelines is to put together all the data created and save them as one file per original file. These new files are called "originalfilename_prepared.txt" and are saved in a new folder called Raw_Data. These files contain the SNP_id, chr, position, Log.R.Ratio and B.Allele.Frequency:
+
+```{}
+dir.create("~/data/PublicData/STUDY/dbGaP/phs000306.v4.p1_GENEVA_Prostate_Cancer/PhenoGenotypeFiles/RootStudyConsentSet_phs000306.GENEVA_MEC_ProstateCancer.v4.p1.c2.GRU-MDS/GenotypeFiles/phg000100.v1.p1.GENEVA_MEC_ProstateCancer_AA.genotype-calls-indfmt.c2.set6/Raw_Data")
+
+setwd("~/data/PublicData/STUDY/dbGaP/phs000306.v4.p1_GENEVA_Prostate_Cancer/PhenoGenotypeFiles/RootStudyConsentSet_phs000306.GENEVA_MEC_ProstateCancer.v4.p1.c2.GRU-MDS/GenotypeFiles/phg000100.v1.p1.GENEVA_MEC_ProstateCancer_AA.genotype-calls-indfmt.c2.set6/Raw_Data")
+
+writeFile <- function(x){
+  res <- data.table(snps, Log.R.Ratio=LRR[[x]], B.Allele.Frequency=BAF[[x]])
+  sample <- samples[x]
+  write.table(res, file=paste0(sample, "_prepared.txt"), quote=F, sep="\t", row.names=F, col.names=T)
+}
+
+lapply(1:length(samples), writeFile)
+```
+
+
