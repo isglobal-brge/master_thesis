@@ -19,10 +19,6 @@ The libraries needed in order to perfomr this pipeline are:
 ```{}
 library(data.table)
 library(parallel)
-library(BiocStyle)
-library(ecolitk)
-library(TEQC)
-library(MADloy)
 ```
 
 
