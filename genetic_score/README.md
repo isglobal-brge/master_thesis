@@ -4,7 +4,7 @@ Genetic scores in complex diseases
 
 # Author and advisor
 
-- Author: Laureano Tomás Laza
+- Author: Laureano Tomás Daza
 - Advisor: Juan R González
 
 # Master program and University
