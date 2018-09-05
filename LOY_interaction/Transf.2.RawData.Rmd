@@ -114,7 +114,7 @@ LRR <- getLRR(R)
 
 ## B Allele Frequency creation
 
-Another important data is the B Allele Frequency. In order to calculate this, thetas are needed. With the thetas, I calculate the theoretical thetas for the homozygous and heterozygous. With this theoretical thetas I compare my thetas in order to calculate the B Allele frequency for each SNP:
+Another important data is the B Allele Frequency. In order to calculate this, thetas are needed. With the thetas, I calculate the theoretical thetas for the homozygous and heterozygous. The values 0.175 and 0.825 are aproximations taken in roder to calculate the theoretical thetas. With this theoretical thetas I compare my thetas in order to calculate the B Allele frequency for each SNP:
 
 ```{}
 ComputeThetas <- function(x){ # x should be My_Data
