@@ -1,0 +1,159 @@
+---
+title: "Association Analysis"
+author: "Celia Mallafré"
+date: "7/9/2018"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+For this analysis, no special packages need to be downloaded.
+
+The first step is to load the object that contains all the data obtained from the MADloy analysis merged with the phenotypical data:
+
+```{}
+load("prostate_dbGAP.Rdata")
+```
+
+
+## Descriptive Variables (Table 1)
+
+With the data loaded, I am only interested in the individuals that present loss of chromosome Y event. I have two differentes LOY, the original one created with the MADloy analysis, and another one created after a cut off correction. I am interested in the corrected LOY. The data loaded has a lot of variables, but I am only going to maintain the ones corresponding to the study:
+
+```{}
+table_subs <- which(prostate$loy2=="LOY")
+
+Table1 <- (prostate[table_subs, c("SubjectID", "loy", "ethni", "age_cat", "bmi_cat", "pa_cat", "ethanol_ca", "p_fat_cat", "currsmoke", "caco", "loy2")])
+
+colnames(Table1) <- c("SubjectID", "LOY", "Ethni", "Age at entry", "BMI", "Physical activity ", "Alcohol consumption", "% calories from fat", "Current smoking", "Case/Control", "LOY2")
+```
+
+
+## Descriptive plot
+
+The next step is to make visual the individuos that present LOY event in comparison with the ones that are normal:
+
+```{}
+pdf("DescriptivePlot.pdf")
+
+plot(prostate$ex.mLRRY, col = prostate$loy2, pch = 19, xlab = "", ylab = "mLRRY")
+title(main = "Descriptive LOY Plot")
+abline(h = 0, lty = 2, lwd = 2, col = "blue")
+legend("bottomright", col = c("black","red"), legend = c("Normal","LOY"), fill = c("black", "red"), cex = 1, text.font = 10)
+
+dev.off()
+```
+
+
+## Descriptive Variables
+
+In order to analyze the interaction, I prepare some regression models according to the variables of study.
+
+
+### Basal adjusted model with ethni and age
+
+One important step is to prepare the basal model. In the literarure I have read a lot of paper where they say that teh prostate cancer is highly influenced by the age and the ethnic group of the individual, so is crucial to use as basal model, a model adjusted by binomial regression model. With the Odd Ratio (OR) I can observe the increment or decrease of the probability in comparison with a individual without LOY. The Confidence Interval (CI95%) shows us the probability (95%) of finding the OR value between two values:
+
+```{}
+mod <- glm(caco ~ loy2 + ethni + age_cat, data=prostate, family="binomial")
+summary(mod)
+exp(coef(mod)[2]) # OR
+exp(confint(mod)[2,]) # CI95%
+```
+
+
+Now, I am gonna calculate the same things, OR and CI95% for all the thereotical models proposed from the basal model created. I am also going to perfomr a Chi-squared test for this models: 
+
+
+### Interaction of the model with alcohol consumption
+
+```{}
+mod2et <- update(mod, . ~ . + loy2*ethanol_ca)
+summary(mod2et)
+exp(coef(mod2et)[7]) # OR
+exp(confint(mod2et)[7,]) # CI95%
+
+chiet <- drop1(mod2et, test = "Chi")
+pet <- chiet$`Pr(>Chi)`[2:4]
+```
+
+
+### Interaction of the model with currently smoking
+
+```{}
+mod2curr <- update(mod, . ~ . + loy2*currsmoke)
+summary(mod2curr)
+exp(coef(mod2curr)[7]) # OR
+exp(confint(mod2curr)[7,]) # CI95%
+
+chicurr <- drop1(mod2curr, test = "Chi")
+pcurr <- chicurr$`Pr(>Chi)`[2:4]
+```
+
+
+### Interaction of the model with physical activity
+
+```{}
+mod2pa <- update(mod, . ~ . + loy2*pa_cat)
+summary(mod2pa)
+exp(coef(mod2pa)[7]) # OR
+exp(confint(mod2pa)[7,]) # CI95%
+
+chipa <- drop1(mod2pa, test = "Chi")
+ppa <- chipa$`Pr(>Chi)`[2:4]
+```
+
+
+### Interaction of the model with percentage of calories from fat
+
+```{}
+mod2fat <- update(mod, . ~ . + loy2*p_fat_cat)
+summary(mod2fat)
+exp(coef(mod2fat)[7]) # OR
+exp(confint(mod2fat)[7,]) # CI95%
+
+chifat <- drop1(mod2fat, test = "Chi")
+pfat <- chifat$`Pr(>Chi)`[2:4]
+```
+
+
+### Interaction of the model with the body mass index (bmi)
+
+```{}
+mod2bmi <- update(mod, . ~ . + loy2*bmi_cat)
+summary(mod2bmi)
+exp(coef(mod2bmi)[7]) # OR
+exp(confint(mod2bmi)[7,]) # CI95%
+
+chibmi <- drop1(mod2bmi, test = "Chi")
+pbmi <- chibmi$`Pr(>Chi)`[2:4]
+```
+
+
+## P values of the Chi-squared test of each risk factors (Table 2)
+
+With all the p values of the Chi-squared test, I am going to prepare a table that contains, for each regression model, its own p value of the Chi-squared test:
+
+```{}
+Table2 <- (cbind(pet, pcurr, ppa, pfat, pbmi))
+
+colnames(Table2) <- c("Alcohol consumption", "Current smoking", "Physical activity ", "% calories from fat", "BMI")
+rownames(Table2) <- c("ethni", "age_cat", "loy2")
+```
+
+
+## P values of each logsitic binomial regression (Table 3)
+
+The last step is to prepare a table that contains the value of the interaction between the LOY and each risk factor:
+
+```{}
+Table3 <- cbind((summary(mod2et))$coefficients[7,4], (summary(mod2curr))$coefficients[7,4], (summary(mod2pa))$coefficients[7,4], (summary(mod2fat))$coefficients[7,4], (summary(mod2bmi))$coefficients[7,4])
+colnames(Table3) <- c("Alcohol consumption", "Current smoking", "Physical activity ", "% calories from fat", "BMI")
+```
+
+
