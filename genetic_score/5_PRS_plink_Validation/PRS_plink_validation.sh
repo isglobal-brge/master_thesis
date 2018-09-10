@@ -28,15 +28,15 @@ plink --bfile ../QC/SNP_file_validation_10 --score logor_new_data.txt --q-score-
 # they could be less than the ones used in the original score and we perform a generalized linear model to compute 
 # the rsquared of the model (model_[range_name].txt) to compare with the previous ones
 
-for row in $(seq 1 $(wc -l ranges.txt | awk '{print $1}'));
+for row in $(seq 1 $(wc -l ranges_to_new_data.txt | awk '{print $1}'));
 do
 echo $p
-range=$(sed $row'q;d' ranges.txt | awk '{print $1}')
+range=$(sed $row'q;d' ranges_to_new_data.txt | awk '{print $1}')
 echo $range
 
-p=$(sed $row'q;d' ranges.txt | awk '{print $3}')
+p=$(sed $row'q;d' ranges_to_new_data.txt | awk '{print $3}')
 
-awk -v pval="$p" '{ if ($2 <= pval) { print } }' q_score_file.txt > snp_score_${range}.txt
+awk -v pval="$p" '{ if ($2 <= pval) { print } }' q_score_to_new_data.txt > snp_score_${range}.txt
 
 Rscript model_score.R ${range}
 sed -i 's/"//g' snp_score_${range}.txt

@@ -1,5 +1,5 @@
 options(stringsAsFactors = F)
-bim <- read.table("/PRS/validation/Original_data/SNP_file.bim")
+bim <- read.table("/PRS/validation/Original_data/SNP_file_validation.bim")
 logor <- read.table("LOGOR_to_score.txt", header=T)
 
 logor$A1 <- as.character(logor$A1)

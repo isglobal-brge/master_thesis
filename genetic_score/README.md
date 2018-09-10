@@ -1,6 +1,6 @@
 # Title
 
-Genetic scores in complex diseases 
+Polygenic Risk Score in complex diseases 
 
 # Author and advisor
 
