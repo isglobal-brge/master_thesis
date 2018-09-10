@@ -1,6 +1,6 @@
 # Description
 
-Repository of R/Bioc code of master thesis
+Repository of R/Bioc/shell code of master thesis
 
 # Thesis projects included in this repository
 
