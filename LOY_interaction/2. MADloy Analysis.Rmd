@@ -80,7 +80,7 @@ loy <- LOY$class
 ```
 
 
-In order to visualyze if the samples have LOY or not, I perform a plot that shows the LORR of each SNP of the sample and the theoretical LRRs. The expected LRR is in 0 but when and individual has LOY, the LRR is lower-
+In order to check visually the samples with LOY, I perform a plot that shows the LRR of each SNP of the sample and the theoretical LRRs. The expected LRR is in 0 but when and individual has LOY, the LRR is lower-
 
 LRR of each SNP = brown dots, mLRR-Y region = shaded area, eexpected LRR = orange line, median LRR value = blue line
 
