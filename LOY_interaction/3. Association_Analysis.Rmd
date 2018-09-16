@@ -23,16 +23,146 @@ load("prostate_dbGAP.Rdata")
 
 ## Descriptive Variables (Table 1)
 
-With the data loaded, I am only interested in the individuals that present loss of chromosome Y event. I have two differentes LOY, the original one created with the MADloy analysis, and another one created after a cut off correction. I am interested in the corrected LOY. The data loaded has a lot of variables, but I am only going to maintain the ones corresponding to the study:
+With the data loaded, I am only interested in the individuals that present loss of chromosome Y event. I have two differentes LOY, the original one created with the MADloy analysis, and another one created after a cut off correction. I am interested in the corrected LOY. The data loaded has a lot of variables, but I am only going to maintain the ones corresponding to the study. In tha Table 1 it is shown the number of individuals and the percentage of individuals thta are presnet in each category of ecah variable:
 
 ```{}
-table_subs <- which(prostate$loy2=="LOY")
+total <- dim(prostate)[1]
 
-Table1 <- (prostate[table_subs, c("SubjectID", "loy", "ethni", "age_cat", "bmi_cat", "pa_cat", "ethanol_ca", "p_fat_cat", "currsmoke", "caco", "loy2")])
+# LOY
+LOYs <- length(which(prostate$loy2=="LOY"))
+pLOYs <- round((LOYs/total)*100, 2)
+Yes <- c(LOYs, pLOYs)
+normals <- length(which(prostate$loy2=="normal"))
+pnormals <- round((normals/total)*100,2)
+No <- c(normals, pnormals)
+LOY <- rbind("LOY",Yes, No)
 
-colnames(Table1) <- c("SubjectID", "LOY", "Ethni", "Age at entry", "BMI", "Physical activity ", "Alcohol consumption", "% calories from fat", "Current smoking", "Case/Control", "LOY2")
+# Ethni
+Latinos <- length(which(prostate$ethni=="L"))
+pLatinos <- round((Latinos/total)*100, 2)
+LatinoA <- c(Latinos, pLatinos)
+Afros <- length(which(prostate$ethni=="B"))
+pAfros <- round((Afros/total)*100,2)
+AfroA <- c(Afros, pAfros)
+Japans <- length(which(prostate$ethni=="J"))
+pJapans <- round((Japans/total)*100,2)
+Japenese <- c(Japans, pJapans)
+Ethni <- rbind("Ethni", LatinoA, AfroA, Japenese)
+
+# Age
+Tres <- length(which(prostate$age_cat=="3"))
+pTres <- round((Tres/total)*100, 2)
+Treses <- c(Tres, pTres) # 55-59
+Cuatros <- length(which(prostate$age_cat=="4"))
+pCuatros <- round((Cuatros/total)*100,2)
+Cuatross <- c(Cuatros, pCuatros) # 60-64
+Cincos <- length(which(prostate$age_cat=="5"))
+pCincos <- round((Cincos/total)*100,2)
+Cincoss <- c(Cincos, pCincos) # 65-69
+Seis <- length(which(prostate$age_cat=="6"))
+pSeis <- round((Seis/total)*100,2)
+Seiss <- c(Seis, pSeis) # 70-74
+AgeAtEntry <- rbind("AgeAtEntry", Treses, Cuatross, Cincoss, Seiss)
+
+# Alcohol
+None <- length(which(prostate$ethanol_ca=="1"))
+pNone <- round((None/total)*100, 2)
+Nones <- c(None, pNone)
+Drink1 <- length(which(prostate$ethanol_ca=="2"))
+pDrink1 <- round((Drink1/total)*100, 2)
+Drink1s <- c(Drink1, pDrink1)
+Drink2 <- length(which(prostate$ethanol_ca=="3"))
+pDrink2 <- round((Drink2/total)*100, 2)
+Drink2s <- c(Drink2, pDrink2)
+Drink3 <- length(which(prostate$ethanol_ca=="4"))
+pDrink3 <- round((Drink3/total)*100, 2)
+Drink3s <- c(Drink3, pDrink3)
+Mis <- total - sum(None, Drink1,Drink2, Drink3)
+pMis <- round((Mis/total)*100, 2)
+Missing <- c(Mis, pMis)
+Alcohol <- rbind("Ethanol", Nones, Drink1s, Drink2s, Drink3s, Missing)
+
+# Smoking 
+nos <- length(which(prostate$currsmoke=="0"))
+pnos <- round((nos/total)*100, 2)
+No <- c(nos, pnos)
+yes <- length(which(prostate$currsmoke=="1"))
+pyes <- round((yes/total)*100,2)
+Yes <- c(yes, pyes)
+Mis <- total - sum(nos, yes)
+pMis <- round((Mis/total)*100, 2)
+Missing <- c(Mis, pMis)
+Smoking <- rbind("CurrentSmoking", No, Yes, Missing)
+
+# Physical Activity
+quintile1 <- length(which(prostate$pa_cat=="1"))
+pquintile1 <- round((quintile1/total)*100, 2)
+Quintile1 <- c(quintile1, pquintile1)
+quintile2 <- length(which(prostate$pa_cat=="2"))
+pquintile2 <- round((quintile2/total)*100, 2)
+Quintile2 <- c(quintile2, pquintile2)
+quintile3 <- length(which(prostate$pa_cat=="3"))
+pquintile3 <- round((quintile3/total)*100, 2)
+Quintile3 <- c(quintile3, pquintile3)
+quintile4 <- length(which(prostate$pa_cat=="4"))
+pquintile4 <- round((quintile4/total)*100, 2)
+Quintile4 <- c(quintile4, pquintile4)
+quintile5 <- length(which(prostate$pa_cat=="5"))
+pquintile5 <- round((quintile5/total)*100, 2)
+Quintile5 <- c(quintile5, pquintile5)
+Mis <- total - sum(quintile1, quintile2, quintile3, quintile4, quintile5)
+pMis <- round((Mis/total)*100, 2)
+Missing <- c(Mis, pMis)
+Physical <- rbind("PhysicalActivity", Quintile1, Quintile2, Quintile3, Quintile4, Quintile5, Missing)
+
+# Calories from Fat
+quintile2 <- length(which(prostate$p_fat_cat=="1"))
+pquintile2 <- round((quintile2/total)*100, 2)
+Quintile2 <- c(quintile2, pquintile2)
+quintile3 <- length(which(prostate$p_fat_cat=="2"))
+pquintile3 <- round((quintile3/total)*100, 2)
+Quintile3 <- c(quintile3, pquintile3)
+quintile4 <- length(which(prostate$p_fat_cat=="3"))
+pquintile4 <- round((quintile4/total)*100, 2)
+Quintile4 <- c(quintile4, pquintile4)
+quintile5 <- length(which(prostate$p_fat_cat=="4"))
+pquintile5 <- round((quintile5/total)*100, 2)
+Quintile5 <- c(quintile5, pquintile5)
+quintile6 <- length(which(prostate$p_fat_cat=="5"))
+pquintile6 <- round((quintile6/total)*100, 2)
+Quintile6 <- c(quintile6, pquintile6)
+Mis <- total - sum(quintile6, quintile2, quintile3, quintile4, quintile5)
+pMis <- round((Mis/total)*100, 2)
+Missing <- c(Mis, pMis)
+Fat <- rbind("FatCalories", Quintile2, Quintile3, Quintile4, Quintile5, Quintile6, Missing)
+
+# BMI
+lUnder22.5 <- length(which(prostate$bmi_cat=="1"))
+pUnder22.5 <- round((lUnder22.5/total)*100, 2)
+Under22.5 <- c(lUnder22.5, pUnder22.5)
+lUnder24.9 <- length(which(prostate$bmi_cat=="2"))
+pUnder24.9 <- round((lUnder24.9/total)*100, 2)
+Under24.9 <- c(lUnder24.9, pUnder24.9)
+lUnder29.9 <- length(which(prostate$bmi_cat=="3"))
+pUnder29.9 <- round((lUnder29.9/total)*100, 2)
+Under29.9 <- c(lUnder29.9, pUnder29.9)
+lMore30 <- length(which(prostate$bmi_cat=="4"))
+pMore30 <- round((lMore30/total)*100, 2)
+More30 <- c(lMore30, pMore30)
+Mis <- total - sum(lUnder24.9, lUnder29.9, lMore30)
+pMis <- round((Mis/total)*100, 2)
+Missing <- c(Mis, pMis)
+BMI <- rbind("BMI", Under22.5, Under24.9, Under29.9, More30, Missing)
+
+Table1 <- rbind(LOY, Ethni, AgeAtEntry, Alcohol, Smoking, Physical, Fat, BMI)
+row.names(Table1) <- c("LOY", "Yes", "No", "Ethni", "LatinoAmerican", "AfroAmerican", "Japenese", "Age", "55-59", "60-64", "65-69", "70-74", 
+                     "AlcoholConsumption", "None", "1 Drink", "2 Drinks", "+2 Drinks", "Missing", "CurrentSmoking", "No", "Yes", "Missing",
+                     "PhysicalActivity", "Quintile1", "Quintile2", "Quintile3", "Quintile4", "Quintile5", "Missing", "FatCalories",
+                     "Quintile2", "Quintile3", "Quintile4", "Quintile5", "Quintile6", "Missing", "BMI", "Under24.9", "Under29.9", "More30", "Missing")
 ```
 
+
+With all this data created, 
 
 ## Descriptive plot
 
@@ -55,9 +185,9 @@ dev.off()
 In order to analyze the interaction, I prepare some regression models according to the variables of study.
 
 
-### Basal adjusted model with ethni and age
+### Basal adjusted models with ethni and age (Table 2)
 
-One important step is to prepare the basal model. In the literarure I have read a lot of paper where they say that teh prostate cancer is highly influenced by the age and the ethnic group of the individual, so is crucial to use as basal model, a model adjusted by binomial regression model. With the Odd Ratio (OR) I can observe the increment or decrease of the probability in comparison with a individual without LOY. The Confidence Interval (CI95%) shows us the probability (95%) of finding the OR value between two values:
+One important step is to prepare the basal model. In the literarure I have read a lot of paper where they say that teh prostate cancer is highly influenced by the age and the ethnic group of the individual, so is crucial to use as basal model, a model adjusted by binomial regression model. With the Odds Ratio (OR) I can observe the increment or decrease of the probability in comparison with a individual without LOY. The Interval of Confidence (IC95%) shows us the probability (95%) of finding the OR value between two values:
 
 ```{}
 mod <- glm(caco ~ loy2 + ethni + age_cat, data=prostate, family="binomial")
@@ -67,7 +197,140 @@ exp(confint(mod)[2,]) # CI95%
 ```
 
 
-Now, I am gonna calculate the same things, OR and CI95% for all the thereotical models proposed from the basal model created. I am also going to perfomr a Chi-squared test for this models: 
+Besides, I am gonna prepare some models that take into account each variable of study separetly plus the ethni and the age. For each variable I am going to calculate the OR, the IC95% and also the number of individuals of eacg category that are cases and controls:
+
+```{}
+# Alcohol
+modet <- glm(caco ~  as.factor(ethanol_ca)+ ethni + age_cat, data=prostate, family="binomial")
+summary(modet)
+
+ORet2 <- exp(coef(modet)[2]) # OR
+CIet2 <- exp(confint(modet)[2,]) # CI95%
+ORet3 <- exp(coef(modet)[3]) # OR
+CIet3 <- exp(confint(modet)[3,]) # CI95%
+ORet4 <- exp(coef(modet)[4]) # OR
+CIet4 <- exp(confint(modet)[4,]) # CI95%
+
+## Cases = prostate$caco=="1", Controls = prostate$caco=="0"
+
+caseet1 <- length(which(prostate$ethanol_ca=="1" & prostate$caco=="1")) 
+controlet1 <- length(which(prostate$ethanol_ca=="1" & prostate$caco=="0"))
+caseet2 <- length(which(prostate$ethanol_ca=="2" & prostate$caco=="1"))
+controlet2 <- length(which(prostate$ethanol_ca=="2" & prostate$caco=="0"))
+caseet3 <- length(which(prostate$ethanol_ca=="3" & prostate$caco=="1"))
+controlet3 <- length(which(prostate$ethanol_ca=="3" & prostate$caco=="0"))
+caseet4 <- length(which(prostate$ethanol_ca=="4" & prostate$caco=="1"))
+controlet4 <- length(which(prostate$ethanol_ca=="4" & prostate$caco=="0"))
+
+# Smoking
+modsmk <- glm(caco ~  as.factor(currsmoke)+ ethni + age_cat, data=prostate, family="binomial")
+summary(modsmk)
+ORet2 <- exp(coef(modsmk)[2]) # OR
+CIet2 <- exp(confint(modsmk)[2,]) # CI95%
+
+casesmk <- length(which(prostate$currsmoke=="1" & prostate$caco=="1"))
+controlsmk <- length(which(prostate$currsmoke=="1" & prostate$caco=="0"))
+casenosmk <- length(which(prostate$currsmoke=="0" & prostate$caco=="1"))
+controlnosmk <- length(which(prostate$currsmoke=="o" & prostate$caco=="0"))
+
+#Physical Activity
+modpa <- glm(caco ~  as.factor(pa_cat)+ ethni + age_cat, data=prostate, family="binomial")
+summary(modpa)
+ORpa2 <- exp(coef(modpa)[2]) # OR
+CIpa2 <- exp(confint(modpa)[2,]) # CI95%
+ORpa3 <- exp(coef(modpa)[3]) # OR
+CIpa3 <- exp(confint(modpa)[3,]) # CI95%
+ORpa4 <- exp(coef(modpa)[4]) # OR
+CIpa4 <- exp(confint(modpa)[4,]) # CI95%
+ORpa5 <- exp(coef(modpa)[5]) # OR
+CIpa5 <- exp(confint(modpa)[5,]) # CI95%
+
+casepa1 <- length(which(prostate$pa_cat=="1" & prostate$caco=="1"))
+controlpa1 <- length(which(prostate$pa_cat=="1" & prostate$caco=="0"))
+casepa2 <- length(which(prostate$pa_cat=="2" & prostate$caco=="1"))
+controlpa2 <- length(which(prostate$pa_cat=="2" & prostate$caco=="0"))
+casepa3 <- length(which(prostate$pa_cat=="3" & prostate$caco=="1"))
+controlpa3 <- length(which(prostate$pa_cat=="3" & prostate$caco=="0"))
+casepa4 <- length(which(prostate$pa_cat=="4" & prostate$caco=="1"))
+controlpa4 <- length(which(prostate$pa_cat=="4" & prostate$caco=="0"))
+casepa5 <- length(which(prostate$pa_cat=="5" & prostate$caco=="1"))
+controlpa5 <- length(which(prostate$pa_cat=="5" & prostate$caco=="0"))
+
+# Calories from Fat
+modfat <- glm(caco ~  as.factor(p_fat_cat) + ethni + age_cat, data=prostate, family="binomial")
+summary(modfat)
+ORfat2 <- exp(coef(modfat)[2]) # OR
+CIfat2 <- exp(confint(modfat)[2,]) # CI95%
+ORfat3 <- exp(coef(modfat)[3]) # OR
+CIfat3 <- exp(confint(modfat)[3,]) # CI95%
+ORfat4 <- exp(coef(modfat)[4]) # OR
+CIfat4 <- exp(confint(modfat)[4,]) # CI95%
+ORfat5 <- exp(coef(modfat)[5]) # OR
+CIfat5 <- exp(confint(modfat)[5,]) # CI95%
+
+casefat1 <- length(which(prostate$p_fat_cat=="1" & prostate$caco=="1"))
+controlfat1 <- length(which(prostate$p_fat_cat=="1" & prostate$caco=="0"))
+casefat2 <- length(which(prostate$p_fat_cat=="2" & prostate$caco=="1"))
+controlfat2 <- length(which(prostate$p_fat_cat=="2" & prostate$caco=="0"))
+casefat3 <- length(which(prostate$p_fat_cat=="3" & prostate$caco=="1"))
+controlfat3 <- length(which(prostate$p_fat_cat=="3" & prostate$caco=="0"))
+casefat4 <- length(which(prostate$p_fat_cat=="4" & prostate$caco=="1"))
+controlfat4 <- length(which(prostate$p_fat_cat=="4" & prostate$caco=="0"))
+casefat5 <- length(which(prostate$p_fat_cat=="5" & prostate$caco=="1"))
+controlfat5 <- length(which(prostate$p_fat_cat=="5" & prostate$caco=="0"))
+
+# BMI
+modbmi <- glm(caco ~  as.factor(bmi_cat)+ ethni + age_cat, data=prostate, family="binomial")
+summary(modbmi)
+ORbmi2 <- exp(coef(modbmi)[2]) # OR
+CIbmi2 <- exp(confint(modbmi)[2,]) # CI95%
+ORbmi3 <- exp(coef(modbmi)[3]) # OR
+CIbmi3 <- exp(confint(modbmi)[3,]) # CI95%
+ORbmi4 <- exp(coef(modbmi)[4]) # OR
+CIbmi4 <- exp(confint(modbmi)[4,]) # CI95%
+
+casesbmi1 <- length(which(prostate$bmi_cat=="1" & prostate$caco=="1"))
+controlbmi1 <- length(which(prostate$bmi_cat=="1" & prostate$caco=="0"))
+casesbmi2 <- length(which(prostate$bmi_cat=="2" & prostate$caco=="1"))
+controlbmi2 <- length(which(prostate$bmi_cat=="2" & prostate$caco=="0"))
+casesbmi3 <- length(which(prostate$bmi_cat=="3" & prostate$caco=="1"))
+controlbmi3 <- length(which(prostate$bmi_cat=="3" & prostate$caco=="0"))
+casesbmi4 <- length(which(prostate$bmi_cat=="4" & prostate$caco=="1"))
+controlbmi4 <- length(which(prostate$bmi_cat=="4" & prostate$caco=="0"))
+```
+
+With all these data calculated, I amgonaa calculate Table 2, which contains the number and percentage on individuals that por ecah variable, present each category separetly in cases in controls, and also the OR, IC95% and the p-value are present:
+
+```{}
+Table2 <- rbind(c(controlnormal, (controlnormal/total*100), casenormal, (casenormal/total*100), "1", "-", "-", "-"), 
+                c(controlLOY,  (controlLOY/total*100), caseLOY, (caseLOY/total*100), exp(coef(mod)[2]), exp(confint(mod)[2,]), (summary(mod))$coefficienrs[2, 4]), 
+                c(controlet1, (controlet1/total*100), caseet1, (caseet1/total*100), "1", "-", "-", "-"),
+                c(controlet2,  (controlet2/total*100), caseet2, (caseet2/total*100), ORet2, CIet2, (summary(modet))$coefficienrs[2, 4]),
+                c(controlet3,  (controlet3/total*100), caseet3, (caseet3/total*100), ORet3, CIet3, (summary(modet))$coefficienrs[3, 4]),
+                c(controlet4,  (controlet4/total*100), caseet4, (caseet4/total*100), ORet4, CIet4, (summary(modet))$coefficienrs[4, 4]), 
+                c(controlnosmk, (controlnosmk/total*100), casenosmk, (casenosmk/total*100), "1", "-", "-", "-"), 
+                c(controlsmk,  (controlsmk/total*100), casesmk, (casesmk/total*100), ORsmk, CIsmk, (summary(modsmk))$coefficienrs[2, 4]),
+                c(controlpa1, (controlpa1/total*100), casepa1, (casepa1/total*100), "1", "-", "-", "-"),
+                c(controlpa2,  (controlpa2/total*100), casepa2, (casepa2/total*100), ORpa2, CIpa2, (summary(modpa))$coefficienrs[2, 4]),
+                c(controlpa3,  (controlpa3/total*100), casepa3, (casepa3/total*100), ORpa3, CIpa3, (summary(modpa))$coefficienrs[3, 4]),
+                c(controlpa4,  (controlpa4/total*100), casepa4, (casepa4/total*100), ORpa4, CIpa4, (summary(modpa))$coefficienrs[4, 4]),
+                c(controlpa5,  (controlpa5/total*100), casepa5, (casepa5/total*100), ORpa5, CIpa5, (summary(modpa))$coefficienrs[5, 4]),
+                c(controlfat1, (controlfat1/total*100), casefat1, (casefat1/total*100), "1", "-", "-", "-"),
+                c(controlfat2,  (controlfat2/total*100), casefat2, (casefat2/total*100), ORfat2, CIfat2, (summary(modfat))$coefficienrs[2, 4]),
+                c(controlfat3,  (controlfat3/total*100), casefat3, (casefat3/total*100), ORfat3, CIfat3, (summary(modfat))$coefficienrs[3, 4]),
+                c(controlfat4,  (controlfat4/total*100), casefat4, (casefat4/total*100), ORfat4, CIfat4, (summary(modfat))$coefficienrs[4, 4]),
+                c(controlfat4,  (controlfat4/total*100), casefat4, (casefat4/total*100), ORfat4, CIfat4, (summary(modfat))$coefficienrs[4, 4]),
+                c(controlbmi1, (controlbmi1/total*100), casesbmi1, (casesbmi1/total*100), "1", "-", "-", "-"),
+                c(controlbmi2,  (controlbmi2/total*100), casesbmi2, (casesbmi2/total*100), ORbmi2, CIbmi2, (summary(modbmi))$coefficienrs[2, 4]),
+                c(controlbmi3,  (controlbmi3/total*100), casesbmi3, (casesbmi3/total*100), ORbmi3, CIbmi3, (summary(modbmi))$coefficienrs[3, 4]),
+                c(controlbmi4,  (controlbmi4/total*100), casesbmi4, (casesbmi4/total*100), ORbmi4, CIbmi4, (summary(modbmi))$coefficienrs[4, 4])
+                )
+
+colnames(Table2) <- c("Controlsn", "Controls%", "Casesn", "Cases%", "OR", "IC95%", "IC95%", "p-value")
+```
+
+
+Now, I am gonna calculate the same things, OR and CI95% for all the thereotical interaction models proposed from the basal model created: 
 
 
 ### Interaction of the model with alcohol consumption
@@ -77,9 +340,6 @@ mod2et <- update(mod, . ~ . + loy2*ethanol_ca)
 summary(mod2et)
 exp(coef(mod2et)[7]) # OR
 exp(confint(mod2et)[7,]) # CI95%
-
-chiet <- drop1(mod2et, test = "Chi")
-pet <- chiet$`Pr(>Chi)`[2:4]
 ```
 
 
@@ -90,9 +350,6 @@ mod2curr <- update(mod, . ~ . + loy2*currsmoke)
 summary(mod2curr)
 exp(coef(mod2curr)[7]) # OR
 exp(confint(mod2curr)[7,]) # CI95%
-
-chicurr <- drop1(mod2curr, test = "Chi")
-pcurr <- chicurr$`Pr(>Chi)`[2:4]
 ```
 
 
@@ -103,9 +360,6 @@ mod2pa <- update(mod, . ~ . + loy2*pa_cat)
 summary(mod2pa)
 exp(coef(mod2pa)[7]) # OR
 exp(confint(mod2pa)[7,]) # CI95%
-
-chipa <- drop1(mod2pa, test = "Chi")
-ppa <- chipa$`Pr(>Chi)`[2:4]
 ```
 
 
@@ -116,9 +370,6 @@ mod2fat <- update(mod, . ~ . + loy2*p_fat_cat)
 summary(mod2fat)
 exp(coef(mod2fat)[7]) # OR
 exp(confint(mod2fat)[7,]) # CI95%
-
-chifat <- drop1(mod2fat, test = "Chi")
-pfat <- chifat$`Pr(>Chi)`[2:4]
 ```
 
 
@@ -129,21 +380,6 @@ mod2bmi <- update(mod, . ~ . + loy2*bmi_cat)
 summary(mod2bmi)
 exp(coef(mod2bmi)[7]) # OR
 exp(confint(mod2bmi)[7,]) # CI95%
-
-chibmi <- drop1(mod2bmi, test = "Chi")
-pbmi <- chibmi$`Pr(>Chi)`[2:4]
-```
-
-
-## P values of the Chi-squared test of each risk factors (Table 2)
-
-With all the p values of the Chi-squared test, I am going to prepare a table that contains, for each regression model, its own p value of the Chi-squared test:
-
-```{}
-Table2 <- (cbind(pet, pcurr, ppa, pfat, pbmi))
-
-colnames(Table2) <- c("Alcohol consumption", "Current smoking", "Physical activity ", "% calories from fat", "BMI")
-rownames(Table2) <- c("ethni", "age_cat", "loy2")
 ```
 
 
@@ -152,8 +388,10 @@ rownames(Table2) <- c("ethni", "age_cat", "loy2")
 The last step is to prepare a table that contains the value of the interaction between the LOY and each risk factor:
 
 ```{}
-Table3 <- cbind((summary(mod2et))$coefficients[7,4], (summary(mod2curr))$coefficients[7,4], (summary(mod2pa))$coefficients[7,4], (summary(mod2fat))$coefficients[7,4], (summary(mod2bmi))$coefficients[7,4])
-colnames(Table3) <- c("Alcohol consumption", "Current smoking", "Physical activity ", "% calories from fat", "BMI")
+Table3 <- rbind(c((summary(mod2et))$coefficients[7,4], ORet, CIet), c((summary(mod2curr))$coefficients[7,4], ORcurr, CIcurr), c((summary(mod2pa))$coefficients[7,4], ORpa, CIpa), c((summary(mod2fat))$coefficients[7,4], ORfat, CIfat), c((summary(mod2bmi))$coefficients[7,4], ORbmi, CIbmi))
+rownames(Table3) <- c("Alcohol consumption", "Current smoking", "Physical activity ", "% calories from fat", "BMI")
+colnames(Table3) <- c("p-value", "OR", "2.5 % ", "97.5 % ")
 ```
+
 
 
