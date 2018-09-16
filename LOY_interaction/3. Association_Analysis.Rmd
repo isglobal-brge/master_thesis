@@ -23,7 +23,7 @@ load("prostate_dbGAP.Rdata")
 
 ## Descriptive Variables (Table 1)
 
-With the data loaded, I am only interested in the individuals that present loss of chromosome Y event. I have two differentes LOY, the original one created with the MADloy analysis, and another one created after a cut off correction. I am interested in the corrected LOY. The data loaded has a lot of variables, but I am only going to maintain the ones corresponding to the study. In tha Table 1 it is shown the number of individuals and the percentage of individuals thta are presnet in each category of ecah variable:
+With the data loaded, I am only interested in the individuals that present loss of chromosome Y event. I have two differentes LOY, the original one created with the MADloy analysis, and another one created after a cut off correction. I am interested in the corrected LOY. The data loaded has a lot of variables, but I am only going to maintain the ones corresponding to the study:
 
 ```{}
 total <- dim(prostate)[1]
@@ -162,7 +162,7 @@ row.names(Table1) <- c("LOY", "Yes", "No", "Ethni", "LatinoAmerican", "AfroAmeri
 ```
 
 
-With all this data created, 
+With all this data created, I create the Table 1. In the Table 1 it is shown the number of individuals and the percentage of individuals thta are present in each category of each variable.
 
 ## Descriptive plot
 
@@ -392,6 +392,7 @@ Table3 <- rbind(c((summary(mod2et))$coefficients[7,4], ORet, CIet), c((summary(m
 rownames(Table3) <- c("Alcohol consumption", "Current smoking", "Physical activity ", "% calories from fat", "BMI")
 colnames(Table3) <- c("p-value", "OR", "2.5 % ", "97.5 % ")
 ```
+
 
 
 
