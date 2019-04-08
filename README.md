@@ -15,5 +15,5 @@ Repository of R/Bioc/shell code of master theses and graduate final projects
 
 # Graduate final projects
 
-- Clàudia Serrano. Parallel implementation of singular value decomposition with application to genomic data. Graduate of Mathematics, Universitat Autònoma de Barcelona (UAB). June 2019. [Script Repository](https://github.com/isglobal-brge/master_thesis/tree/master/obesitySeq)
+- Clàudia Serrano. Parallel implementation of singular value decomposition with application to genomic data. Graduate of Mathematics, Universitat Autònoma de Barcelona (UAB). June 2019. [Script Repository](https://github.com/isglobal-brge/master_thesis/tree/master/parallel_SVD)
 
