@@ -148,6 +148,49 @@ Once we have all variant from all bam files, we need to obtain the minor allele 
 
 ###GATK haplotype caller
 Considering the problem with the VariantTool R package. We proved the tool HaplotypeCaller from java-based tool named GATK. This tool allow us to call variants individually on each sample using it in -ERC GVCF mode, leveraging the previously introduced reference model to produce a comprehensive record of genotype likelihoods and annotations for each site in the exome, in the form of a gVCF file. By this way, we can safely call all variants.
+The following bash code was used to obtain the gVCFs.
+
+```{bash HaploCaller}
+
+# Directories
+DWD="$(pwd)"
+DIRBAM=$DWD/Data
+DIRVCF=$DWD/VCF_HapCaller
+GREF=$DWD/hg38.fa
+
+# 1. HaplotypeCaller
+
+##Changing from chrM to chrMT 
+sed 's/chrM/chrMT/g' hg38.fa 
+##Reference dictionary creation
+gatk CreateSequenceDictionary -R hg38.fa -O hg38.dict
+##Creating index file
+samtools faidx hg38.fa 
+
+##HaplotypeCaller 
+for BAM in `ls $DIRBAM| grep "bam$"|grep -v "2F759.bam"`
+do
+    gatk --java-options "-Xmx4g" HaplotypeCaller -R $GREF \
+    -I $BAM -O $DIRVCF/${BAM%".bam"}.raw.snps.indels.g.vcf \
+    -ERC GVCF &
+done
+wait
+```
+
+Once we got all gVCFs, we used the gatk's tool name `ValidateVarints` in order to validate the correctness of the formatting of VCF files. In addition to standard adherence to the VCF specification, this tool performs extra strict validations to ensure that the information contained within the file is correctly encoded. These include:
+- REF - correctness of the reference base(s)
+- CHR_COUNTS - accuracy of AC and AN values
+- IDS - tests against rsIDs when a dbSNP file is provided
+- ALLELES - that all alternate alleles are present in at least one sample
+
+```{bash VariantValidation}
+# 2. Variant validation
+for FILE in `find $DIRVCF -name "*.raw.snps.indels.g.vcf"`
+do
+    gatk ValidateVariants -R $GREF -V $FILE &
+done
+wait
+```
 
 
 ## Variant annotation
