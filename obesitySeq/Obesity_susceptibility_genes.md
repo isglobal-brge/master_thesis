@@ -149,7 +149,9 @@ Once we have all variant from all bam files, we need to obtain the minor allele 
 
 ### GATK haplotype caller
 
-Considering the problem with the VariantTool R package. We proved the tool HaplotypeCaller from java-based tool named GATK. This tool allow us to call variants individually on each sample using it in -ERC GVCF mode, leveraging the previously introduced reference model to produce a comprehensive record of genotype likelihoods and annotations for each site in the exome, in the form of a gVCF file. By this way, we can safely call all variants. The following bash code was used to obtain the gVCFs.
+Considering the problem with the VariantTool R packag, we proved the tool HaplotypeCaller from java-based tool named GATK. This tool allow us to call variants individually on each sample using it in -ERC GVCF mode, leveraging the previously introduced reference model to produce a comprehensive record of genotype likelihoods and annotations for each site in the exome, in the form of a gVCF file. By this way, we can safely call all variants.
+
+The following bash code was used to obtain the gVCFs.
 
 ``` bash
 
@@ -178,7 +180,15 @@ done
 wait
 ```
 
-Once we got all gVCFs, we used the gatk's tool name `ValidateVarints` in order to validate the correctness of the formatting of VCF files. In addition to standard adherence to the VCF specification, this tool performs extra strict validations to ensure that the information contained within the file is correctly encoded. These include: - REF - correctness of the reference base(s) - CHR\_COUNTS - accuracy of AC and AN values - IDS - tests against rsIDs when a dbSNP file is provided - ALLELES - that all alternate alleles are present in at least one sample
+Once we got all gVCFs, we used the gatk's tool name `ValidateVarints` in order to validate the correctness of the formatting of VCF files. In addition to standard adherence to the VCF specification, this tool performs extra strict validations to ensure that the information contained within the file is correctly encoded. These include:
+
+-   REF. correctness of the reference base(s)
+
+-   CHR\_COUNTS. accuracy of AC and AN values
+
+-   IDS. tests against rsIDs when a dbSNP file is provided
+
+-   ALLELES. that all alternate alleles are present in at least one sample
 
 ``` bash
 # 2. Variant validation
@@ -190,6 +200,98 @@ wait
 ```
 
 Once validated, we combined all gVCFs in only one VCF file. Through the GATK's tool named `CombineGVCFs`.
+
+``` bash
+#3. Combine GVCFs
+
+find $DIRVCF -name "*.raw.snps.indels.g.vcf" > $DWD/input.list
+gatk CombineGVCFs -R $GREF -V $DWD/input.list -O $DIRVCF/RawVariants.vcf 
+```
+
+Once we got the multi-sample VCF, we used the tool `GenotypeGVCFs` in order to perform joint genotyping
+
+``` bash
+# 4. GVCF Genotyping
+
+mkdir $DIRVCF/finalVCF
+gatk --java-options "-Xmx4g" GenotypeGVCFs -R $GREF -V $DIRVCF/RawVariants.vcf -O $DIRVCF/finalVCF/variants.vcf
+```
+
+From this last code, a jointly genotyped VCF file was obtained. The next step consisted in filtering all low quality variants from the VCF file.
+
+In order to filter in the best way, first of all, the SNPs and INDELs were separated because each type of variant has different filtering parameters. For selecting SNPs and INDELs the tool `SelectVariants` was used.
+
+``` bash
+gatk SelectVariants -V $DIRVCF/finalVCF/variants.vcf -select-type SNP -O $DIRVCF/finalVCF/variants.snps.vcf &
+gatk SelectVariants -V $DIRVCF/finalVCF/variants.vcf -select-type INDEL -O $DIRVCF/finalVCF/variants.indels.vcf
+```
+
+Once selected, the following filtering parameters were applied:
+
+**For SNPs**
+
+-   [QD](https://www.broadinstitute.org/gatk/guide/tooldocs/org_broadinstitute_gatk_tools_walkers_annotator_QualByDepth.php)&lt; 2.0
+
+-   [MQ](https://www.broadinstitute.org/gatk/guide/tooldocs/org_broadinstitute_gatk_tools_walkers_annotator_RMSMappingQuality.php) &lt; 40.0
+
+-   [FS](https://www.broadinstitute.org/gatk/guide/tooldocs/org_broadinstitute_gatk_tools_walkers_annotator_FisherStrand.php) &gt; 60.0
+
+-   [SOR](https://software.broadinstitute.org/gatk/gatkdocs/org_broadinstitute_gatk_tools_walkers_annotator_StrandOddsRatio.php) &gt; 3.0
+
+-   [MQRankSum](https://www.broadinstitute.org/gatk/guide/tooldocs/org_broadinstitute_gatk_tools_walkers_annotator_MappingQualityRankSumTest.php) &lt; -12.5
+
+-   [ReadPosRankSum](https://www.broadinstitute.org/gatk/guide/tooldocs/org_broadinstitute_gatk_tools_walkers_annotator_ReadPosRankSumTest.php) &lt; -8.0
+
+**For INDELs**
+
+-   [QD](https://www.broadinstitute.org/gatk/guide/tooldocs/org_broadinstitute_gatk_tools_walkers_annotator_QualByDepth.php) &lt; 2.0
+
+-   [ReadPosRankSum](https://www.broadinstitute.org/gatk/guide/tooldocs/org_broadinstitute_gatk_tools_walkers_annotator_ReadPosRankSumTest.php) &lt; -20.0
+
+-   InbreedingCoeff &lt; -0.8
+
+-   [FS](https://www.broadinstitute.org/gatk/guide/tooldocs/org_broadinstitute_gatk_tools_walkers_annotator_FisherStrand.php) &gt; 200.0
+
+-   [SOR](https://software.broadinstitute.org/gatk/gatkdocs/org_broadinstitute_gatk_tools_walkers_annotator_StrandOddsRatio.php) &gt; 10.0
+
+``` bash
+#SNPs filtration
+gatk VariantFiltration -V $DIRVCF/finalVCF/variants.snps.vcf \
+-filter "QD < 2.0" --filter-name "QD2" \
+-filter "QUAL < 30.0" --filter-name "QUAL30" \
+-filter "SOR > 3.0" --filter-name "SOR3" \
+-filter "FS > 60.0" --filter-name "FS60" \
+-filter "MQ < 40.0" --filter-name "MQ40" \
+-filter "MQRankSum < -12.5" --filter-name "MQRankSum-12.5" \
+-filter "ReadPosRankSum < -8.0" --filter-name "ReadPosRankSum-8" \
+-O $DIRVCF/finalVCF/variants.snps_filtered.vcf
+
+##Indels filtration
+
+gatk VariantFiltration -V $DIRVCF/finalVCF/variants.indels.vcf -filter "QD < 2.0" \
+--filter-name "QD2" \
+-filter "QUAL < 30.0" --filter-name "QUAL30" \
+-filter "FS > 200.0" --filter-name "FS200" \
+-filter "ReadPosRankSum < -20.0" --filter-name "ReadPosRankSum-20" \
+-O $DIRVCF/finalVCF/variants.indels_filtered.vcf
+```
+
+Once filtered, SNPs and INDELs filtered were merged in a file and unfiltered variants were selected.
+
+``` bash
+gatk MergeVcfs \
+          -I $DIRVCF/finalVCF/variants.snps_filtered.vcf \
+          -I $DIRVCF/finalVCF/variants.indels_filtered.vcf \
+          -O $DIRVCF/finalVCF/variants_filtered.vcf
+
+# Selection of unfiltered variants
+gatk SelectVariants \
+              -V $DIRVCF/finalVCF/variants_filtered.vcf \
+              -exclude-filtered true -O $DIRVCF/finalVCF/variant_filtered.vcf
+
+bgzip -c $DIRVCF/finalVCF/variants_filtered.vcf > $DIRVCF/finalVCF/variants_filtered.vcf.gz
+tabix -f -p vcf $DIRVCF/finalVCF/variants_filtered.vcf.gz
+```
 
 Variant annotation
 ------------------
