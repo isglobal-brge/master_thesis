@@ -2,7 +2,9 @@
 title: "Obesity susceptibility genes in a Spanish population using sequencing data"
 author: "Isaac De la Hoz"
 date: "9 de abril de 2019"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -11,3 +13,20 @@ knitr::opts_chunk$set(echo = TRUE, eval = FALSE, cache=TRUE)
 
 # Introduction
 
+## Obesity
+Obesity is defined as an increase in fat mass that is sufficient to adversely affect health. According World Health Organization, people with a body mass index (BMI; weight in kg/height in meters2) higher than 30 kg/m2 are considered obese. Nowadays, obesity has become a common health problem among the different human popolations worldwide. In Europe, for instance, 10%-20% of people are classified as obese.
+Evidence for genetic contributions to body weight comes from family, twin, and adoption studies, which cumulatively demonstrate that the heritability (fraction of the total phenotypic variance of a quantitative trait attributable to genes in a specified environment) of BMI is between 0.71 and 0.86.
+
+The objective of this study is to discover genetic variants associated with the obesity from 16 samples of obese people.
+
+# Data description
+
+We have 16 whole exome sequence data from 16 different obese people...
+
+# Methodology
+
+##Variant Calling
+###R procedure
+###GATK haplotype caller
+## Variant annotation
+###Statistic analysis
