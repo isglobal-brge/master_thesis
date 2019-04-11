@@ -66,7 +66,9 @@ gmapGenome <- GmapGenome(genome=hs, directory=gmapGenomeDirectory,
                          name="hg38", create=TRUE, k = 14L)
 ```
 
-This last code have to be run only one time because once run, a gmap object is created and stored in the directory selected. The following code take charge of the variant calling and genotyping. It was executed once per Bam file you have, changing each time the object `FILE` by the correspondent bam file name.
+This last code have to be run only one time because once run, a gmap object is created and stored in the directory selected.
+
+The following code take charge of variant calling and genotyping. It was executed once per Bam file we had, changing each time the object `FILE` by the correspondent bam file name.
 
 ``` r
 #data loading

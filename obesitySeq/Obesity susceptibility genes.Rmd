@@ -2,9 +2,9 @@
 title: "Obesity susceptibility genes in a Spanish population using sequencing data"
 author: "Isaac De la Hoz"
 output:
-  pdf_document: default
-  html_document: default
   github_document: default
+  html_document: default
+  pdf_document: default
 bibliography: bibliography.bib
 link-citations: yes
 ---
@@ -64,7 +64,8 @@ gmapGenome <- GmapGenome(genome=hs, directory=gmapGenomeDirectory,
 ```
 
 This last code have to be run only one time because once run, a gmap object is created and stored in the directory selected.
-The following code take charge of the variant calling and genotyping. It was executed once per Bam file you have, changing each time the object `FILE` by the correspondent bam file name.
+
+The following code take charge of variant calling and genotyping. It was executed once per Bam file we had, changing each time the object `FILE` by the correspondent bam file name.
 
 ```{r VarCall}
 #data loading
