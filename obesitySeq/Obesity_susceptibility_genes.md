@@ -665,7 +665,7 @@ EnGenes <- genes(edb, filter= GeneNameFilter(as.vector(t2)))
 EnGenesAll <- genes(edb, filter= GeneNameFilter(k2))
 ```
 
-Finally, hypergeometric test was performed using Gene Ontology database.
+Finally, hypergeometric test was performed using Gene Ontology database and KEGG database.
 
 ``` r
 #Enrichment procedure via hypergeometric test
@@ -680,6 +680,17 @@ params <- new("GOHyperGParams", geneIds=Genes_01,
 hgOver <- hyperGTest(params)
 head(summary(hgOver))        
 save(hgOver, file="EnrichmentGO.rda")
+
+library(KEGG.db)
+params.kegg <- new("KEGGHyperGParams", geneIds=Genes_01,
+                   universeGeneIds=geneUniverse,
+                   annotation="org.Hs.eg.db", 
+                   pvalueCutoff=0.01, 
+                   testDirection="over")
+
+hgOver.kegg <- hyperGTest(params.kegg)
+summary(hgOver.kegg)
+save(hgOver.kegg, file="EnrichmentKEGG.rda")
 ```
 
 References

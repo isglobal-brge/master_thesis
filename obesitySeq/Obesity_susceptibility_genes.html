@@ -726,7 +726,7 @@ k2&lt;- grep(&quot;*&quot;,unlist(k), value = TRUE)
 k2&lt;-gsub(&quot; &quot;,&quot;&quot;, k2)
 EnGenes &lt;- genes(edb, filter= GeneNameFilter(as.vector(t2)))
 EnGenesAll &lt;- genes(edb, filter= GeneNameFilter(k2))</code></pre>
-<p>Finally, hypergeometric test was performed using Gene Ontology database.</p>
+<p>Finally, hypergeometric test was performed using Gene Ontology database and KEGG database.</p>
 <pre class="r"><code>#Enrichment procedure via hypergeometric test
 Genes_01 &lt;- unlist(mget(EnGenes$gene_id, envir=org.Hs.egENSEMBL2EG,ifnotfound = NA))
 geneUniverse &lt;- unlist(mget(EnGenesAll$gene_id, envir=org.Hs.egENSEMBL2EG, ifnotfound = NA))
@@ -738,7 +738,18 @@ params &lt;- new(&quot;GOHyperGParams&quot;, geneIds=Genes_01,
               testDirection=&quot;over&quot;)
 hgOver &lt;- hyperGTest(params)
 head(summary(hgOver))        
-save(hgOver, file=&quot;EnrichmentGO.rda&quot;)</code></pre>
+save(hgOver, file=&quot;EnrichmentGO.rda&quot;)
+
+library(KEGG.db)
+params.kegg &lt;- new(&quot;KEGGHyperGParams&quot;, geneIds=Genes_01,
+                   universeGeneIds=geneUniverse,
+                   annotation=&quot;org.Hs.eg.db&quot;, 
+                   pvalueCutoff=0.01, 
+                   testDirection=&quot;over&quot;)
+
+hgOver.kegg &lt;- hyperGTest(params.kegg)
+summary(hgOver.kegg)
+save(hgOver.kegg, file=&quot;EnrichmentKEGG.rda&quot;)</code></pre>
 </div>
 </div>
 <div id="references" class="section level1 unnumbered">
