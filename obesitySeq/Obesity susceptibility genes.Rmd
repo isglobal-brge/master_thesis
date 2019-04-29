@@ -2,9 +2,9 @@
 title: "Obesity susceptibility genes in a Spanish population using sequencing data"
 author: "Isaac De la Hoz"
 output:
-  html_document: default
-  github_document: default
   pdf_document: default
+  github_document: default
+  html_document: default
 bibliography: bibliography.bib
 link-citations: yes
 ---
@@ -367,6 +367,7 @@ head(obmaf)
 ```
 ```{r, eval=TRUE,echo=FALSE,message=FALSE}
 load(file = "Data/obmaf.rda")
+load(file="Data/obesity_maf.rda")
 ```
 
 ```{r obmaf, eval=TRUE, echo=FALSE}
@@ -520,18 +521,17 @@ length(obmaf.01)
 
 In order to know if the results have biological sense, we performed an enrichment analysis. By this way, we knew what molecular function the genes, where the significant SNPs are located, have.
 
-```{R EnrichmentLibraries}
+```{R EnrichmentLibraries, eval=TRUE}
 #Enrichment analysis
-
 library(GO.db)
 library(EnsDb.Hsapiens.v86)
-library(org.Hs.egENSEMBL2EG)
 library(GOstats)
+library(Homo.sapiens.hg38)
 ```
 
 Once the libraries needed were loaded, first of all, we annotated to genes all SNPs obtained from variant calling (obmaf) using the following code.
 
-```{R EnrichmentGeneAnnot}
+```{R EnrichmentGeneAnnot, eval=TRUE}
 #Genes Obmaf (maf data used to perform the fdr analysis)
 geneRanges <- 
   function(db, column="ENTREZID")
@@ -562,7 +562,7 @@ obmaf<-obmaf[obmaf$GENES!=""]
 
 Once we have genes annotated, the following step was add the ENSEMBL ids to all genes.
 
-```{R EnrichmentENSEMBL-ids}
+```{R EnrichmentENSEMBL-ids, eval=TRUE}
 #Annotation of EMSEMBL genes IDs
 edb <- EnsDb.Hsapiens.v86
 length(obmaf.01)-length(obmaf.01[obmaf.01$GENES==""])
@@ -582,7 +582,7 @@ EnGenesAll <- genes(edb, filter= GeneNameFilter(k2))
 
 Finally, hypergeometric test was performed using Gene Ontology database and KEGG database.
 
-```{R EnrichmentGodb}
+```{R EnrichmentGodb, eval=TRUE}
 #Enrichment procedure via hypergeometric test
 Genes_01 <- unlist(mget(EnGenes$gene_id, envir=org.Hs.egENSEMBL2EG,ifnotfound = NA))
 geneUniverse <- unlist(mget(EnGenesAll$gene_id, envir=org.Hs.egENSEMBL2EG, ifnotfound = NA))
@@ -604,8 +604,8 @@ params.kegg <- new("KEGGHyperGParams", geneIds=Genes_01,
                    testDirection="over")
 
 hgOver.kegg <- hyperGTest(params.kegg)
-summary(hgOver.kegg)
-save(hgOver.kegg, file="EnrichmentKEGG.rda")
+head(summary(hgOver.kegg))
+save(hgOver.kegg, file="Data/EnrichmentKEGG.rda")
 ```
 
 #References

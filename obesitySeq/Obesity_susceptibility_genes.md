@@ -607,11 +607,10 @@ In order to know if the results have biological sense, we performed an enrichmen
 
 ``` r
 #Enrichment analysis
-
 library(GO.db)
 library(EnsDb.Hsapiens.v86)
-library(org.Hs.egENSEMBL2EG)
 library(GOstats)
+library(Homo.sapiens.hg38)
 ```
 
 Once the libraries needed were loaded, first of all, we annotated to genes all SNPs obtained from variant calling (obmaf) using the following code.
@@ -651,6 +650,11 @@ Once we have genes annotated, the following step was add the ENSEMBL ids to all 
 #Annotation of EMSEMBL genes IDs
 edb <- EnsDb.Hsapiens.v86
 length(obmaf.01)-length(obmaf.01[obmaf.01$GENES==""])
+```
+
+    ## [1] 586
+
+``` r
 obmaf.01<-obmaf.01[obmaf.01$GENES!=""]
 #Coincidents genes are splitted
 ##obmaf01
@@ -679,6 +683,24 @@ params <- new("GOHyperGParams", geneIds=Genes_01,
               testDirection="over")
 hgOver <- hyperGTest(params)
 head(summary(hgOver))        
+```
+
+    ##       GOBPID       Pvalue OddsRatio   ExpCount Count Size
+    ## 1 GO:0030168 1.782629e-05  4.543514  3.1685357    13  145
+    ## 2 GO:1901699 1.421899e-04  2.331157 12.4556232    27  570
+    ## 3 GO:0050667 1.885496e-04 18.105638  0.3059276     4   14
+    ## 4 GO:0000096 2.456455e-04  7.793092  0.8959308     6   41
+    ## 5 GO:0071548 2.456455e-04  7.793092  0.8959308     6   41
+    ## 6 GO:0060312 3.391417e-04 33.860947  0.1529638     3    7
+    ##                                     Term
+    ## 1                    platelet activation
+    ## 2 cellular response to nitrogen compound
+    ## 3         homocysteine metabolic process
+    ## 4    sulfur amino acid metabolic process
+    ## 5              response to dexamethasone
+    ## 6  regulation of blood vessel remodeling
+
+``` r
 save(hgOver, file="EnrichmentGO.rda")
 
 library(KEGG.db)
@@ -689,8 +711,26 @@ params.kegg <- new("KEGGHyperGParams", geneIds=Genes_01,
                    testDirection="over")
 
 hgOver.kegg <- hyperGTest(params.kegg)
-summary(hgOver.kegg)
-save(hgOver.kegg, file="EnrichmentKEGG.rda")
+head(summary(hgOver.kegg))
+```
+
+    ##   KEGGID       Pvalue OddsRatio ExpCount Count Size
+    ## 1  04510 7.534290e-06  4.238994 4.463692    16  196
+    ## 2  05414 1.682603e-04  5.132190 2.026881     9   89
+    ## 3  04666 1.996950e-04  5.005072 2.072429     9   91
+    ## 4  05146 4.395693e-04  4.452386 2.300168     9  101
+    ## 5  04810 7.450406e-04  3.115748 4.691432    13  206
+    ## 6  04972 1.527640e-03  4.057560 2.209072     8   97
+    ##                               Term
+    ## 1                   Focal adhesion
+    ## 2           Dilated cardiomyopathy
+    ## 3 Fc gamma R-mediated phagocytosis
+    ## 4                       Amoebiasis
+    ## 5 Regulation of actin cytoskeleton
+    ## 6             Pancreatic secretion
+
+``` r
+save(hgOver.kegg, file="Data/EnrichmentKEGG.rda")
 ```
 
 References
