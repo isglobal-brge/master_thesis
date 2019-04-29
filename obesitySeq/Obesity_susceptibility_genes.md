@@ -349,6 +349,7 @@ gr <- makeGRangesFromDataFrame(var, seqnames.field="CHROM",
                                start.field ="POS", end.field="POS", ignore.strand = TRUE)
 mcols(gr)$MAF <- var$MAF
 mcols(gr)$N_ob <- var$N_ob
+mcols(gr)$TYPE <- var$TYPE
 ##Maf calculation is a very time consuming step, so we save the file as a ckeckpoint
 ##just in case something wrong occurs
 save(gr,file="maf_variants.rda")
@@ -598,6 +599,88 @@ length(obmaf.01)
 ```
 
     ## [1] 953
+
+Enrichment analysis via hypergeometric test
+-------------------------------------------
+
+In order to know if the results have biological sense, we performed an enrichment analysis. By this way, we knew what molecular function the genes, where the significant SNPs are located, have.
+
+``` r
+#Enrichment analysis
+
+library(GO.db)
+library(EnsDb.Hsapiens.v86)
+library(org.Hs.egENSEMBL2EG)
+library(GOstats)
+```
+
+Once the libraries needed were loaded, first of all, we annotated to genes all SNPs obtained from variant calling (obmaf) using the following code.
+
+``` r
+#Genes Obmaf (maf data used to perform the fdr analysis)
+geneRanges <- 
+  function(db, column="ENTREZID")
+  {
+    g <- genes(db, columns=column)
+    col <- mcols(g)[[column]]
+    genes <- granges(g)[rep(seq_along(g), elementNROWS(col))]
+    mcols(genes)[[column]] <- as.character(unlist(col))
+    genes
+  }
+
+splitColumnByOverlap <-
+  function(query, subject, column="ENTREZID", ...)
+  {
+    olaps <- findOverlaps(query, subject, ...)
+    f1 <- factor(subjectHits(olaps),
+                 levels=seq_len(subjectLength(olaps)))
+    splitAsList(mcols(query)[[column]][queryHits(olaps)], f1)
+  }
+gns <- geneRanges(Homo.sapiens.hg38, column="SYMBOL")
+seqlevelsStyle(obmaf)<-seqlevelsStyle(gns)
+genome(obmaf)<-genome(gns)
+symInCnv = splitColumnByOverlap(gns, obmaf, "SYMBOL")
+geneNames<-as.vector(unstrsplit(symInCnv, sep=", "))
+obmaf$GENES <- geneNames
+obmaf<-obmaf[obmaf$GENES!=""]
+```
+
+Once we have genes annotated, the following step was add the ENSEMBL ids to all genes.
+
+``` r
+#Annotation of EMSEMBL genes IDs
+edb <- EnsDb.Hsapiens.v86
+length(obmaf.01)-length(obmaf.01[obmaf.01$GENES==""])
+obmaf.01<-obmaf.01[obmaf.01$GENES!=""]
+#Coincidents genes are splitted
+##obmaf01
+t <- strsplit(unlist(obmaf.01$GENES),"[,]")
+t2<- grep("*",unlist(t), value = TRUE)
+t2<-gsub(" ","", t2)
+##obmaf
+k <- strsplit(unlist(obmaf$GENES),"[,]")
+k2<- grep("*",unlist(k), value = TRUE)
+k2<-gsub(" ","", k2)
+EnGenes <- genes(edb, filter= GeneNameFilter(as.vector(t2)))
+EnGenesAll <- genes(edb, filter= GeneNameFilter(k2))
+```
+
+Finally, hypergeometric test was performed using Gene Ontology database.
+
+``` r
+#Enrichment procedure via hypergeometric test
+Genes_01 <- unlist(mget(EnGenes$gene_id, envir=org.Hs.egENSEMBL2EG,ifnotfound = NA))
+geneUniverse <- unlist(mget(EnGenesAll$gene_id, envir=org.Hs.egENSEMBL2EG, ifnotfound = NA))
+##GO
+params <- new("GOHyperGParams", geneIds=Genes_01,
+              universeGeneIds=geneUniverse,
+              annotation="org.Hs.eg.db", ontology="BP",
+              pvalueCutoff=0.01 , conditional=FALSE,
+              testDirection="over")
+hgOver <- hyperGTest(params)
+head(summary(hgOver))        
+save(hgOver, file="EnrichmentGO.rda")
+```
 
 References
 ==========
