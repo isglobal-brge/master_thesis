@@ -12,6 +12,7 @@ Repository of R/Bioc/shell code of master theses and graduate final projects
 
 - Isaac de la Hoz. Obesity susceptibility genes in a Spanish population using sequencing data. Master in Bioinformatics, Universitat Autònoma de Barcelona (UAB). July 2019. [Script Repository](https://github.com/isglobal-brge/master_thesis/tree/master/obesitySeq).
 
+- Elia Palma. Transcriptome signatures of secondary tumors after radiotherapy. Master in Bioinformatics, Universitat Autònoma de Barcelona (UAB). July 2019. [Script Repository](https://github.com/isglobal-brge/master_thesis/tree/master/radiation_cancer).
 
 # Graduate final projects
 
