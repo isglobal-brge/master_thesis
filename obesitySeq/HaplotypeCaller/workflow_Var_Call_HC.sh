@@ -65,7 +65,7 @@ mkdir $DIRVCF/finalVCF
 gatk --java-options "-Xmx4g" GenotypeGVCFs -R $GREF -V $DIRVCF/RawVariants.vcf -O $DIRVCF/finalVCF/variants.vcf
 
 ################################################################################
-# 4. Variant filtering via Hard filtering                                      #
+# 5. Variant filtering via Hard filtering                                      #
 ################################################################################
 
 gatk SelectVariants -V $DIRVCF/finalVCF/variants.vcf -select-type SNP -O $DIRVCF/finalVCF/variants.snps.vcf &
@@ -91,7 +91,7 @@ gatk VariantFiltration -V $DIRVCF/finalVCF/variants.indels.vcf -filter "QD < 2.0
 -filter "ReadPosRankSum < -20.0" --filter-name "ReadPosRankSum-20" -O $DIRVCF/finalVCF/variants.indels_filtered.vcf
 
 ################################################################################
-# 5. Merging filtered SNPs and indels                                      #
+# 6. Merging filtered SNPs and indels                                      #
 ################################################################################
 
 gatk MergeVcfs \
@@ -105,7 +105,7 @@ gatk SelectVariants -V $DIRVCF/finalVCF/variants_filtered.vcf -exclude-filtered 
 bgzip -c $DIRVCF/finalVCF/variants_filtered.vcf > $DIRVCF/finalVCF/variants_filtered.vcf.gz
 tabix -f -p vcf $DIRVCF/finalVCF/variants_filtered.vcf.gz
 ################################################################################
-# 6. Variants that have pass the filter are located to a table                 #
+# 7. Variants that have pass the filter are located to a table                 #
 ################################################################################
 
 gatk VariantsToTable \
