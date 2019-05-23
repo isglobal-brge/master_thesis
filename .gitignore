@@ -1,0 +1,13 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+.Rbuildignore
+vignettes/.Rhistory
+master_thesis.Rproj
+
+*/*_cache
+
+*/*vignette_files
+
+/RelevantPapers
