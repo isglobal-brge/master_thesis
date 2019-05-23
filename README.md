@@ -1,6 +1,6 @@
 # Description
 
-Repository of R/Bioc/shell code of master theses and graduate final projects
+Repository of R/Bioc/shell code of master theses and graduate final projects **_since 2018_**.
 
 # MSc thesis projects 
 
