@@ -14,6 +14,8 @@ Repository of R/Bioc/shell code of master theses and graduate final projects
 
 - Elia Palma. Transcriptome signatures of secondary tumors after radiotherapy. Master in Bioinformatics, Universitat Autònoma de Barcelona (UAB). July 2019. [Script Repository](https://github.com/isglobal-brge/master_thesis/tree/master/radiation_cancer).
 
+- Gema Rojas. Extreme downregulation prediction using DNA methylation data: application to enviromental exposure studies. Master in Bioinformatics, Universitat Autònoma de Barcelona (UAB). July 2019. [Script Repository](https://github.com/isglobal-brge/master_thesis/tree/master/EDY).
+
 # Graduate final projects
 
 - Clàudia Serrano. Parallel implementation of singular value decomposition with application to genomic data. Graduate of Mathematics, Universitat Autònoma de Barcelona (UAB). June 2019. [Script Repository](https://github.com/isglobal-brge/master_thesis/tree/master/parallel_SVD)
