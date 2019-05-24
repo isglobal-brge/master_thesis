@@ -16,7 +16,7 @@ Repository of R/Bioc/shell code of master theses and graduate final projects **_
 
 - Gema Rojas. Extreme downregulation prediction using DNA methylation data: application to enviromental exposure studies. Master in Bioinformatics, Universitat Autònoma de Barcelona (UAB). July 2019. [Script Repository](https://github.com/isglobal-brge/master_thesis/tree/master/EDY).
 
-- Jonatan González. Type 2 diabetes prection based on genomic data us deep learning algorithms. Omic Data Analysis, Universitat de Vic (UVic).  September 2019. [Script Repository](https://github.com/isglobal-brge/master_thesis/tree/master/DiabPred).
+- Jonatan González. Type 2 diabetes prection based on genomic data with deep learning algorithms. Omic Data Analysis, Universitat de Vic (UVic).  September 2019. [Script Repository](https://github.com/isglobal-brge/master_thesis/tree/master/DiabPred).
 
 # Graduate final projects
 
