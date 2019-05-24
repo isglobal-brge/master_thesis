@@ -1,6 +1,6 @@
 ﻿# Title
 
-Type 2 diabetes predicction based on genomic data with deep learning algorithms
+Type 2 diabetes prediction based on genomic data with deep learning algorithms
 
 # Author and advisor
 
