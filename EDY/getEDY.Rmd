@@ -1,0 +1,35 @@
+---
+title: "getEDY"
+output: html_notebook
+---
+
+The aim of this function is to detect individuals who present extreme downregulation of chromosome Y (EDY) from microarray or RNA-seq experiments. For each individual, the relative expression of the entire chromosome Y with respect to the autosomes is calculated. For $n$ probes (exons) in
+chromosome Y, with $x_i$ intensity (read counts) for the $i$-th probe, the function computes 
+$y=1/n \sum_{i=1}^N \log_2(x_i)$ as a measure of the average expression of chromosome Y. Likewise, for $m$ probes in the autosomes, it computes the mean expression of autosomes $a = 1/m \sum_{i=1}^M \log_2(x_i)$ [NOTE: for RNAseq data $\log_2(x_i + 1)$ is computed to avoid problems with zero counts]. The
+relative amount of an individual's Y expression with respect to the individual's autosomes is then
+$Ry=y-a$, and, in a population sample, the individual $j$ is considered with EDY if
+
+$$Ry_j < median(Ry) - 1.2 IQR(Ry)$$
+
+where IQR is the inter-quartile range across the sample.
+
+
+# Data used to select probes from chromosome Y or autosomes
+
+One of the first steps in this function is to select the probes that belong to chromosome Y and those which belong to autosomes. For this purpose, we created a table with all the HUGO Gene Nomenclature Committee (HGNC) symbols that belong to chromosome Y (and another one for autosomes) using the tool https://www.genenames.org/download/custom/. Here, we selected the following options:
+
+ - In the field *Select column data* we selected only the option **Approved symbol**, from the *Curated by the HGNC* subsection.
+ 
+ - In the field *Select chromosomes*, we selected only **Y** for the chromosome Y table, and **from 1 to 22** for autosomal chromosomes, leaving the options *X*, *reserved loci*, *mitochondrial* and *pseudoautosomal* unselected in both cases.
+ 
+ - For the rest of the sections, we kept the default options selected.
+ 
+ After submitting each query, we saved the ouputs in two different .RData objects.
+ 
+The `getEDY` function now selects the probes by choosing the HGNC symbols of the probes that are present in each table, and then it uses the selected probes to measure the relative expression of the entire chromosome Y with respect to the autosomes.
+ 
+
+
+
+
+

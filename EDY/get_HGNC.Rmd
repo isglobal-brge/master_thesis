@@ -1,0 +1,40 @@
+---
+title: "get_hgnc"
+output: html_notebook
+---
+
+The `get_hgnc` function was created for those cases in which the HGNC symbol of the probes is not available in the dataset we are using. The function can get the HGNC symbol from **genBank**
+accession numbers, **entrezgenes** (NCBI gene IDs), **RefSeq** IDs, **UniProt** IDs or
+**Ensembl** stable IDs. 
+
+In order to get the HGNC symbols, we created a table using the tool https://www.genenames.org/download/custom/ that contains all the HGNC symbols from autosomes and chromosomes X and Y in one column, and 4 more columns with the corresponding entrezgenes, RefSeq, Uniprot and Ensembl symbols. From this table, the function generates dictionaries which are R vectors with the HGNC symbols as values and the one of the available type of symbols as names, depending on the selected type of IDs from which to retrieve HGNC symbols. 
+
+To create te table, we selected the following options when using `genenames.ogr`:
+
+ - In the field *Select column data* we selected the options **Approved symbol**, **NCBI Gene ID**, **Ensembl gene ID**, **RefSeq IDs**, from the *Curated by the HGNC* subsection and **Uniprot ID** from the *Downloaded from external sources* subsection.
+ 
+ - In the field *Select chromosomes*, we selected chromosomes **from 1 to 22**  and **X** and **Y**, leaving the options *reserved loci*, *mitochondrial* and *pseudoautosomal* unselected.
+ 
+ - For the rest of the sections, we kept the default options selected.
+ 
+ After submitting each query, we saved the ouput in a .RData object.
+ 
+As you may have noticed, the **genBank** IDs are not present in the table. We could not find this type of IDs in the previous tool, but as they are commonly used in old datasets, we decided to include them into our function using the R package `org.Hs.eg.db`. First, a dictionary is created, an R vector which contains all the entrezgenes as values and the corresponding genBank IDs as names:
+
+```
+library(org.Hs.eg.db)
+
+list_entrez_id <- as.list(org.Hs.egACCNUM2EG) 
+GB.ids <- names(list_entrez_id)  
+dictionary <- unlist(list_entrez_id)
+names(dictionary) <- GB.ids
+```
+From this dictionary, the entrezgenes corresponding to the genBank IDs in our query are selected and then we use one of the previous dictionaries to get the HGNC symbols.
+
+```
+entrezgenes.query <- unname(dictionary[query])
+      
+dictionary2 <- EDY::genome.annot$hgnc_symbol
+names(dictionary2) <- EDY::genome.annot$entrezgene
+hgnc_symbol <- unname(dictionary2[entrezgenes.query])
+```

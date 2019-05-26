@@ -1,0 +1,21 @@
+---
+title: "Elastic Net Model"
+output: html_notebook
+---
+
+The objective of the elastic net model created for this package is to predict extreme downregulation of chromosome Y (EDY) from methylation data. 
+
+In order to construct the model, data from The Cancer Genomic Atlas (TCGA) was used. 
+
+# Transcriptomic data
+
+# Methylation data
+
+In order to get the methylation data from TCGA, the following packages were used:
+```
+library(TCGAbiolinks)
+library(GenomicRanges)
+library(SummarizedExperiment)
+```
+
+The process was as follows.
