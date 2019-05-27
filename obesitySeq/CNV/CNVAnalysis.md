@@ -198,6 +198,46 @@ cnvrs
     ##   -------
     ##   seqinfo: 22 sequences from an unspecified genome; no seqlengths
 
+All this anlysis is perfeormed using control data taken from Iberian population from 1000 genome project. The data for control looks like this:
+
+``` r
+load(file = "Data/cnvControls.rda")
+cnvrControl
+```
+
+    ## GRanges object with 10763 ranges and 3 metadata columns:
+    ##           seqnames            ranges strand |      freq        type
+    ##              <Rle>         <IRanges>  <Rle> | <numeric> <character>
+    ##       [1]     chr1   1955148-1955523      * |         4        loss
+    ##       [2]     chr1   1955691-1990975      * |        11        loss
+    ##       [3]     chr1   2185175-2185190      * |         8        both
+    ##       [4]     chr1   2185281-2185395      * |         7        both
+    ##       [5]     chr1 13148905-13165467      * |         8        both
+    ##       ...      ...               ...    ... .       ...         ...
+    ##   [10759]    chr22 50529710-50529754      * |         5        loss
+    ##   [10760]    chr22 50530409-50541456      * |        10        both
+    ##   [10761]    chr22 50547568-50556432      * |        13        both
+    ##   [10762]    chr22 50780613-50780718      * |        12        both
+    ##   [10763]    chr22 50782769-50784072      * |        12        loss
+    ##                  caco
+    ##           <character>
+    ##       [1]     control
+    ##       [2]     control
+    ##       [3]     control
+    ##       [4]     control
+    ##       [5]     control
+    ##       ...         ...
+    ##   [10759]     control
+    ##   [10760]     control
+    ##   [10761]     control
+    ##   [10762]     control
+    ##   [10763]     control
+    ##   -------
+    ##   seqinfo: 22 sequences from an unspecified genome; no seqlengths
+
+Enrichmen by genomic ranges
+---------------------------
+
 Once individual CNV calls have been summarized across the population, it is typically of interest whether the resulting CNV regions overlap with functional genomic regions such as genes, promoters, or enhancers. As a certain amount of overlap can be expected just by chance, an assessment of statistical significance is needed to decide whether the observed overlap is greater (enrichment) or less (depletion) than expected by chance.
 
 The `regioneR` package implements a general framework for testing overlaps of genomic regions based on permutation sampling. This allows to repeatedly sample random regions from the genome, matching size and chromosomal distribution of the region set under study (here: the CNV regions). By recomputing the overlap with the functional features in each permutation, statistical significance of the observed overlap can be assessed.
@@ -238,3 +278,237 @@ res
     ## 
     ## attr(,"class")
     ## [1] "permTestResultsList"
+
+Finding Relevant CNVs comparing casi with controls
+==================================================
+
+First of all, we need to add a column with the data name (case or control) and to find those overlaping CNVs between case and control
+
+``` r
+cnvrs$caco <- "obese"
+cnvrControl$caco <- "control"
+gr.common <- subsetByOverlaps(cnvrs, cnvrControl)
+```
+
+Once we have defined the overlaping CNVs, we need to define the function to evaluate the significance of each overlaping CNV comparing the frequency of each CNV between case and control through fisher test:
+
+``` r
+testCNV <- function(x, n=c(15, 15)) {
+  tt <- matrix(c(x[1], n[1] - x[1], x[2], n[2] - x[2]), ncol=2)
+  ans <- try(fisher.test(tt), TRUE)
+  if (inherits(ans, "try-error"))
+    out <- NA
+  else
+    out <- ans$p.value
+  out
+}
+#We define a loop in order to evaluate the significance of each
+#overlaping CNV
+out <- list()
+freqControl<- list()
+typeControl<- list()
+for (i in 1:length(gr.common)){
+  obs <- c(NA, NA)
+  obs[1] <- subsetByOverlaps(cnvrs, gr.common[i])$freq
+  obs[2] <- subsetByOverlaps(cnvrControl, gr.common[i])$freq
+  freqControl[[i]]<-obs[2]
+  typeControl [[i]]<- subsetByOverlaps(cnvrControl, gr.common[i])$type[1]
+  out[[i]] <- testCNV(obs)
+}
+gr.common$freqControl <- unlist(freqControl)
+gr.common$typeControl <- unlist(as.vector(typeControl))
+pvals <- unlist(out)
+gr.common$p.values <- pvals 
+#The p-value is ajusted by the Benjamini, Hochberg method
+gr.common$padj <- p.adjust(pvals, method="BH")
+#The resulting object looks like this
+gr.common
+```
+
+    ## GRanges object with 154 ranges and 7 metadata columns:
+    ##         seqnames              ranges strand |      freq        type
+    ##            <Rle>           <IRanges>  <Rle> | <numeric> <character>
+    ##     [1]     chr2   69963462-69963500      * |        11        both
+    ##     [2]     chr2   69996858-69996888      * |        14        both
+    ##     [3]     chr2   70086124-70086245      * |        15        loss
+    ##     [4]     chr2 157325643-157325662      * |         5        both
+    ##     [5]     chr2 189791700-189795951      * |         4        both
+    ##     ...      ...                 ...    ... .       ...         ...
+    ##   [150]    chr12 121453120-121494521      * |         2        loss
+    ##   [151]    chr12 121509943-121524795      * |         6        both
+    ##   [152]    chr12 121536020-121536128      * |         3        loss
+    ##   [153]    chr12 121579627-121651644      * |        10        both
+    ##   [154]    chr12 133193428-133214831      * |         9        both
+    ##                caco freqControl typeControl             p.values
+    ##         <character>   <numeric> <character>            <numeric>
+    ##     [1]       obese           4        loss   0.0268377292262022
+    ##     [2]       obese           5        loss  0.00169915042478761
+    ##     [3]       obese           7        both  0.00219890054972513
+    ##     [4]       obese           6        both                    1
+    ##     [5]       obese           6        both    0.699850074962519
+    ##     ...         ...         ...         ...                  ...
+    ##   [150]       obese          15        both 1.75350921030713e-06
+    ##   [151]       obese          15        both 0.000699650174912543
+    ##   [152]       obese          15        both 1.05210552618428e-05
+    ##   [153]       obese          15        both   0.0421455938697318
+    ##   [154]       obese          14        both   0.0800766283524905
+    ##                         padj
+    ##                    <numeric>
+    ##     [1]   0.0536754584524045
+    ##     [2]  0.00545144094619358
+    ##     [3]  0.00627093860477167
+    ##     [4]                    1
+    ##     [5]    0.798176628471334
+    ##     ...                  ...
+    ##   [150] 6.75101045968245e-05
+    ##   [151]  0.00234230710731591
+    ##   [152]  0.00011573160788027
+    ##   [153]   0.0737547892720306
+    ##   [154]    0.129808429118774
+    ##   -------
+    ##   seqinfo: 22 sequences from an unspecified genome; no seqlengths
+
+We proceed to anotate the genes where these CNV overlaps:
+
+``` r
+###Annotating genes
+#Extracting gene names and their genomic positions
+library(Homo.sapiens.hg38)
+geneRanges <- 
+  function(db, column="ENTREZID")
+  {
+    g <- genes(db, columns=column)
+    col <- mcols(g)[[column]]
+    genes <- granges(g)[rep(seq_along(g), elementNROWS(col))]
+    mcols(genes)[[column]] <- as.character(unlist(col))
+    genes
+  }
+
+splitColumnByOverlap <-
+  function(query, subject, column="ENTREZID", ...)
+  {
+    olaps <- findOverlaps(query, subject, ...)
+    f1 <- factor(subjectHits(olaps),
+                 levels=seq_len(subjectLength(olaps)))
+    splitAsList(mcols(query)[[column]][queryHits(olaps)], f1)
+  }
+gns <- geneRanges(Homo.sapiens.hg38, column="SYMBOL")
+
+#Merging genes positions with SNPs' genomics positions
+seqlevelsStyle(gr.common)<-seqlevelsStyle(gns)
+genome(gr.common)<-genome(gns)
+symInCnv = splitColumnByOverlap(gns, gr.common, "SYMBOL")
+geneNames<-as.vector(unstrsplit(symInCnv, sep=", "))
+gr.common$GENES <- geneNames
+#we can see the significants CNVs
+gr.commonSig<- gr.common[gr.common$padj<=0.05]
+#The most significant CNVs
+gr.common[gr.common$padj==(min(gr.commonSig$padj))]
+```
+
+    ## GRanges object with 4 ranges and 8 metadata columns:
+    ##       seqnames              ranges strand |      freq        type
+    ##          <Rle>           <IRanges>  <Rle> | <numeric> <character>
+    ##   [1]    chr12     1800007-1800052      * |         2        both
+    ##   [2]    chr12   68747930-68759239      * |         2        gain
+    ##   [3]    chr12   68764888-68805479      * |         2        loss
+    ##   [4]    chr12 121453120-121494521      * |         2        loss
+    ##              caco freqControl typeControl             p.values
+    ##       <character>   <numeric> <character>            <numeric>
+    ##   [1]       obese          15        both 1.75350921030713e-06
+    ##   [2]       obese          15        both 1.75350921030713e-06
+    ##   [3]       obese          15        both 1.75350921030713e-06
+    ##   [4]       obese          15        both 1.75350921030713e-06
+    ##                       padj                 GENES
+    ##                  <numeric>           <character>
+    ##   [1] 6.75101045968245e-05              CACNA2D4
+    ##   [2] 6.75101045968245e-05               SLC35E3
+    ##   [3] 6.75101045968245e-05 LOC100130075, SLC35E3
+    ##   [4] 6.75101045968245e-05                 KDM2B
+    ##   -------
+    ##   seqinfo: 22 sequences from hg38 genome; no seqlengths
+
+Finally, we can visualize the most significant CNVs using the GViz package and the plotCNVs function from Genome Alteration Detection Algorithm (GADA) package.
+
+``` r
+###Ploting genemoic features where the significants CNV are located
+
+library(Gviz)
+library(Homo.sapiens.hg38)
+library(gada)
+
+##PlotsCNVs code. Some modifications are needed in order to make it work with our data
+
+plotCNVs <- function(x, range, genome="hg38", drawGenes=FALSE,
+                     col.cnvs = c("darkgreen", "darkblue"),
+                     col.group = c("tomato", "lightblue"),
+                     group, mosaic = FALSE){
+  
+  if(missing(range))
+    stop("a GenomicRange should be passed from 'range' argument")
+  
+  chr <- as.character(seqnames(range))
+  cnvs.range <- subsetByOverlaps(x, range)
+  fill <- ifelse(cnvs.range$type=="both", "white",
+                   ifelse(cnvs.range$type=="gain", "darkgreen",
+                          ifelse(cnvs.range$type=="loss", "darkblue","black"))) 
+  
+  cnvs.l <- AnnotationTrack(cnvs.range, 
+                            fill = fill,
+                            name = "Individuals",
+                            group = cnvs.range$caco, 
+                            cex.group=0.5)
+  gtrack <- GenomeAxisTrack()
+  itrack <- IdeogramTrack(genome = genome, 
+                          chromosome = chr)
+  if (drawGenes) {
+    if (genome=="hg19" & requireNamespace("TxDb.Hsapiens.UCSC.hg19.knownGene")) {
+      txdb <- TxDb.Hsapiens.UCSC.hg19.knownGene
+    }
+    else if (genome=="hg38" & requireNamespace("TxDb.Hsapiens.UCSC.hg38.knownGene"))
+      txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene
+    else {
+      warning("Genes are not shown since TxDb database is not installed in you computer")
+      drawGenes <- FALSE
+    }  
+  } 
+  
+  if(drawGenes) {
+    
+    allg <- genes(txdb)
+    allg.range <- subsetByOverlaps(allg, range)
+    allg.range$symbol <- mapIds(Homo.sapiens.hg38::Homo.sapiens.hg38, 
+                                keys=allg.range$gene_id,
+                                keytype="ENTREZID",
+                                column="SYMBOL")
+    
+    
+    grtrack <- GeneRegionTrack(allg.range, genome = genome,
+                               chromosome = chr, showId=TRUE,
+                               geneSymbol=TRUE,
+                               start = start(range), 
+                               end = end(range),
+                               name = "Genes")
+    
+    plotTracks(c(itrack, gtrack, grtrack, cnvs.l), 
+               groupAnnotation = "caco", from = start(range),
+               to = end(range))
+  }
+  else{
+    plotTracks(c(itrack, gtrack, cnvs.l), 
+               groupAnnotation = "caco", from = start(rr),
+               to = end(rr))
+  }
+}
+
+#We prove the CNVs of the gene SLC35E3
+##SLC35E3
+ImpGenes<- grep("SLC35E3", gr.commonSig$GENES, value = T)
+Imp1<-gr.commonSig[gr.commonSig$GENES==c(ImpGenes)]
+Imp1[3]<-subsetByOverlaps(cnvrControl,Imp1)
+
+rr <- GRanges("chr12:68e6-69e6")
+plotCNVs(Imp1, range=rr, drawGenes = TRUE, genome="hg38")
+```
+
+![](CNVAnalysis_files/figure-markdown_github/visualization-1.png)
