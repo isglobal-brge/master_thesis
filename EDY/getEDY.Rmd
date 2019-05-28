@@ -24,9 +24,10 @@ One of the first steps in this function is to select the probes that belong to c
  
  - For the rest of the sections, we kept the default options selected.
  
- After submitting each query, we saved the ouputs in two different .RData objects.
+ After submitting each query, we saved the ouputs in two different .RData objects, `chrY.genes.RData` and `autosomal.genes.RData` that are available in the package.
  
 The `getEDY` function now selects the probes by choosing the HGNC symbols of the probes that are present in each table, and then it uses the selected probes to measure the relative expression of the entire chromosome Y with respect to the autosomes.
+ 
  
 
 

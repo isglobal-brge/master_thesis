@@ -3,19 +3,119 @@ title: "Elastic Net Model"
 output: html_notebook
 ---
 
-The objective of the elastic net model created for this package is to predict extreme downregulation of chromosome Y (EDY) from methylation data. 
+The objective of the elastic net model created for this package is to predict extreme downregulation of chromosome Y (EDY) from methylation data (*Beta-values*). 
 
-In order to construct the model, data from The Cancer Genomic Atlas (TCGA) was used. 
+In order to construct the model, we used 1436 male individuals from The Cancer Genomic Atlas (TCGA) from which we had transcriptomic data. You can check the identifiers of the individuals in the rownames of the `train` and `test` objects of the `EDY` package. We calculated the EDY status of each individual using the function `getEDY` as described in the vignette. 
 
-# Transcriptomic data
 
-# Methylation data
+# Download methylation data from TCGA
 
-In order to get the methylation data from TCGA, the following packages were used:
+Next, we downloaded the available methylation data for all the individuals (using `TCGAbiolinks`) and we selected the CpGs that belong to chromosome Y:
+
 ```
 library(TCGAbiolinks)
 library(GenomicRanges)
 library(SummarizedExperiment)
+
+# TCGA.ids correspond to the IDs of those individual from which we calculated EDY status
+a <- GDCquery(project = grep("TCGA", TCGAbiolinks:::getGDCprojects()$project_id, value=TRUE),
+              legacy = TRUE,
+              data.category = "DNA methylation",
+              platform = "Illumina Human Methylation 450",
+              barcode = TCGA.ids)
+
+GDCdownload(a)
+data <- GDCprepare(a)
+
+# With this range in GRanges, we assure that we are covering the whole chromosome Y (which is only 57227415 bp long)
+rr <- GRanges("chrY", IRanges(1,1000000000))
+data.Y <- subsetByOverlaps(data, rr)
+
+# Construct a data.frame with CpGs in columns and TCGA IDs in rows.
+data.Y <- t(SummarizedExperiment::assay(data.Y))
+df.Y <- as.data.frame(data.Y)
+df.Y$id <- rownames(df.Y)
+```
+# Preprocessing data to construct the model
+
+First of all, we needed to filter the individuals of the data.frame we just downloaded in order to use just those who have cancer, which have the string "-01A" in their identifiers, and then we joined the methylation information with the EDY status and the age of each individual:
+
+```
+# The EDY object is a data.frame that contains IDs in row names, and two columns: one corresponding to EDY status and another one with the age of the individual 
+df.Y$id2 <- substr(df.Y$id, 1, 12)
+mask <- grep(c("-01A"), rownames(df.Y))
+datmet <- merge(EDY, df.Y[mask, ], all.x=FALSE, by.x="row.names", by.y="id2")
+```
+Then, we selected those CpGs which have less than 80% of missing values, and those individuals with less than 70% of CpGs missing, and we imputed the resulting matrix:
+
+```
+cpgs <- grep("^cg", names(datmet), value = TRUE)
+keep.cpgs <- cpgs[apply(datmet[,cpgs], 2, function(x) mean(!is.na(x))>0.8)]
+
+keep.indiv <- apply(datmet[,cpgs], 1, function(x) mean(!is.na(x))>0.7)
+datmet.qc <- datmet[keep.indiv, ]
+
+xx <- as.matrix(datmet.qc[,keep.cpgs])
+xx.imp <- impute.knn(xx)$data
+dat.imp <- data.frame(EDY = datmet.qc$EDY,
+                      age = datmet.qc$age, 
+                      xx.imp)
+```
+ 
+# Model development
+
+## Train and test data sets
+
+In order to construct the model, we need to separate our data into two groups, one to train the model (`train`) and another one to validate it (`test`). We used 80% of the data for the training set and 20% for the test:
+
+```
+set.seed(123456)
+training.samples <- dat.imp$EDY %>% 
+  createDataPartition(p=0.8, list=FALSE)
+train  <- dat.imp[training.samples,]
+test <- dat.imp[-training.samples,]
 ```
 
-The process was as follows.
+## Finding the best parameters to construct the model
+
+In order to find the best parameters for our elastic net, we used the function `train` from the package `caret`, which trains a model with different values for the parameters `alpha` and `lambda` and selects the ones that better fit the training data. 
+
+```
+set.seed(1234)
+model.enet <- train(
+  EDY ~., data = train, method = "glmnet",
+  trControl = trainControl("cv", number = 10),
+  tuneLength = 10
+)
+```
+
+Here we obtained that the best values for our parameters were: `alpha = 0.2` and `lambda = 0.02403319`. Now, we validated the model using the test data, and we obtained an accuracy of 0.9303 with 95% confidence interval between 0.8944 and 0.9569, No Information Rate of 0.6272 and p-value of $2e^{-16}$.
+
+```
+# Model validation
+edy.pred <- model.enet %>% predict(test) %>% as.factor()
+confusionMatrix(edy.pred, test$EDY)
+```
+
+Finally, our model stays as follows:
+
+```
+# Column 1 of train is the EDY status and column two is the age of the individual
+mod <- glmnet::glmnet(x=as.matrix(train[,-c(1:2)]),
+                      y=train[,1],
+                      family="binomial",
+                      alpha = 0.2, lambda = 0.02403319)
+```
+
+And we can find the coefficients for each CpG using:
+
+```
+coefs <- coefficients(mod)
+coefsEDY <- coefs %>% as.matrix
+colnames(coefsEDY) <- "coefs"
+coefsEDY <- coefsEDY[coefsEDY[,1]!=0,]
+```
+
+
+
+
