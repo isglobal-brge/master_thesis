@@ -1,6 +1,6 @@
 Obesity susceptibility genes in a Spanish population using sequencing data
 ================
-Isaac De la Hoz
+Isaac De la Hoz and Juan R Gonzalez
 
 Introduction
 ============
@@ -617,6 +617,7 @@ Once the libraries needed were loaded, first of all, we annotated to genes all S
 
 ``` r
 #Genes Obmaf (maf data used to perform the fdr analysis)
+library(GOstats)
 geneRanges <- 
   function(db, column="ENTREZID")
   {
@@ -685,20 +686,20 @@ hgOver <- hyperGTest(params)
 head(summary(hgOver))        
 ```
 
-    ##       GOBPID       Pvalue OddsRatio   ExpCount Count Size
-    ## 1 GO:0030168 1.782629e-05  4.543514  3.1685357    13  145
-    ## 2 GO:1901699 1.421899e-04  2.331157 12.4556232    27  570
-    ## 3 GO:0050667 1.885496e-04 18.105638  0.3059276     4   14
-    ## 4 GO:0000096 2.456455e-04  7.793092  0.8959308     6   41
-    ## 5 GO:0071548 2.456455e-04  7.793092  0.8959308     6   41
-    ## 6 GO:0060312 3.391417e-04 33.860947  0.1529638     3    7
-    ##                                     Term
-    ## 1                    platelet activation
-    ## 2 cellular response to nitrogen compound
-    ## 3         homocysteine metabolic process
-    ## 4    sulfur amino acid metabolic process
-    ## 5              response to dexamethasone
-    ## 6  regulation of blood vessel remodeling
+    ##       GOBPID       Pvalue OddsRatio  ExpCount Count Size
+    ## 1 GO:0030168 1.149716e-05  4.750598  3.041421    13  145
+    ## 2 GO:0008015 8.148366e-05  2.570078 10.089129    24  481
+    ## 3 GO:0006644 9.563927e-05  2.812324  7.676967    20  366
+    ## 4 GO:0003013 1.083594e-04  2.518859 10.277906    24  490
+    ## 5 GO:0090066 1.535908e-04  2.634508  8.578906    21  409
+    ## 6 GO:0051494 1.757802e-04  4.471673  2.454112    10  117
+    ##                                               Term
+    ## 1                              platelet activation
+    ## 2                                blood circulation
+    ## 3                   phospholipid metabolic process
+    ## 4                       circulatory system process
+    ## 5          regulation of anatomical structure size
+    ## 6 negative regulation of cytoskeleton organization
 
 ``` r
 save(hgOver, file="EnrichmentGO.rda")
@@ -715,12 +716,12 @@ head(summary(hgOver.kegg))
 ```
 
     ##   KEGGID       Pvalue OddsRatio ExpCount Count Size
-    ## 1  04510 7.534290e-06  4.238994 4.463692    16  196
-    ## 2  05414 1.682603e-04  5.132190 2.026881     9   89
-    ## 3  04666 1.996950e-04  5.005072 2.072429     9   91
-    ## 4  05146 4.395693e-04  4.452386 2.300168     9  101
-    ## 5  04810 7.450406e-04  3.115748 4.691432    13  206
-    ## 6  04972 1.527640e-03  4.057560 2.209072     8   97
+    ## 1  04510 7.748883e-06  4.228931 4.473714    16  196
+    ## 2  05414 1.710985e-04  5.120243 2.031431     9   89
+    ## 3  04666 2.030459e-04  4.993417 2.077081     9   91
+    ## 4  05146 4.807021e-04  4.393377 2.328157     9  102
+    ## 5  04810 7.606490e-04  3.108333 4.701964    13  206
+    ## 6  04972 1.549378e-03  4.048098 2.214032     8   97
     ##                               Term
     ## 1                   Focal adhesion
     ## 2           Dilated cardiomyopathy
