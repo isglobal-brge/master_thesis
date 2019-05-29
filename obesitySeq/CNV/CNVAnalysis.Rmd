@@ -1,11 +1,10 @@
 ---
 title: "CNV Analysis"
-author: "Isaac De la Hoz"
-date: "13 de mayo de 2019"
+author: "Isaac De la Hoz and Juan R Gonzalez"
 output:
-  html_document: default
-  pdf_document: default
   github_document: default
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}

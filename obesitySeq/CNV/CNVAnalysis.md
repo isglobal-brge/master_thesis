@@ -1,7 +1,6 @@
 CNV Analysis
 ================
-Isaac De la Hoz
-13 de mayo de 2019
+Isaac De la Hoz and Juan R Gonzalez
 
 Copy number variants detection using *exomeCopy* R package
 ==========================================================
@@ -503,7 +502,7 @@ plotCNVs <- function(x, range, genome="hg38", drawGenes=FALSE,
                to = end(range))
   }
   else{
-    plotTracks(c(itrack, gtrack, cnvs.l), 
+    plotTracks(c(itrack, gtrack, cnvs.l, cnvs), 
                from = start(rr),
                to = end(rr))
   }

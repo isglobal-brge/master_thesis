@@ -1,10 +1,10 @@
 ---
 title: "Obesity susceptibility genes in a Spanish population using sequencing data"
-author: "Isaac De la Hoz"
+author: "Isaac De la Hoz and Juan R Gonzalez"
 output:
-  pdf_document: default
   github_document: default
   html_document: default
+  pdf_document: default
 bibliography: bibliography.bib
 link-citations: yes
 ---
@@ -533,6 +533,7 @@ Once the libraries needed were loaded, first of all, we annotated to genes all S
 
 ```{R EnrichmentGeneAnnot, eval=TRUE}
 #Genes Obmaf (maf data used to perform the fdr analysis)
+library(GOstats)
 geneRanges <- 
   function(db, column="ENTREZID")
   {
