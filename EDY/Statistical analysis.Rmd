@@ -3,6 +3,8 @@ title: "Statistical analysis"
 output: html_notebook
 ---
 
+# HELIX
+
 First of all, EDY was calculated for the male individuals in the data set, as explained in the vignette. Next, EDY status was compared with the exposition data, during pregnancy and after birth. 
 
 The association analysis were performed as follows: 
@@ -39,4 +41,7 @@ where `x` is the row-variable and `y` is the grouping variable.
 If there are two groups, the Odds Ratio is computed for each row-variable. While, if the response is of class `Surv` (i.e. time to event) Hazard Ratios are computed. 
 The p-values for Hazard Ratios are computed using the logrank or Wald test under a Cox proportional hazard regression when row-variable is categorical or continuous, respectively. 
 
+# GSE73103
+
+# GSE61256
 
