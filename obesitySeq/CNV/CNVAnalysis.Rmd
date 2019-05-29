@@ -279,23 +279,32 @@ library(gada)
 
 plotCNVs <- function(x, range, genome="hg38", drawGenes=FALSE,
                      col.cnvs = c("darkgreen", "darkblue"),
-                     col.group = c("tomato", "lightblue"),
-                     group, mosaic = FALSE){
-  
+                     mosaic = FALSE){
   if(missing(range))
     stop("a GenomicRange should be passed from 'range' argument")
   
+  Imp8<-GRanges()
+  Imp6<-GRanges()
+  for (i in 1:length(x)){
+    for (j in 1:x[i]$freq){
+      Imp6[j]<-x[i]
+      Imp8<-c(Imp8,Imp6[j])
+    }
+  }
   chr <- as.character(seqnames(range))
-  cnvs.range <- subsetByOverlaps(x, range)
-  fill <- ifelse(cnvs.range$type=="both", "white",
-                   ifelse(cnvs.range$type=="gain", "darkgreen",
-                          ifelse(cnvs.range$type=="loss", "darkblue","black"))) 
+  cnvs.range <- subsetByOverlaps(Imp8, range)
   
-  cnvs.l <- AnnotationTrack(cnvs.range, 
-                            fill = fill,
-                            name = "Individuals",
-                            group = cnvs.range$caco, 
-                            cex.group=0.5)
+  fill <- ifelse(cnvs.range$caco=="obese", col.cnvs[1],
+                 ifelse(cnvs.range$caco=="control", col.cnvs[2],"black")) 
+  
+  cnvs.l <- AnnotationTrack(cnvs.range[cnvs.range$caco=="obese"], 
+                            fill = fill[1:length(cnvs.range[cnvs.range$caco=="obese"])],
+                            name = "Cases",
+                            cex.group=1, width = 1)
+  cnvs <- AnnotationTrack(cnvs.range[cnvs.range$caco=="control"], 
+                            fill = fill[length(cnvs.range[cnvs.range$caco=="obese"]):length(cnvs.range)],
+                            name = "Controls",
+                            cex.group=1, width = 1)
   gtrack <- GenomeAxisTrack()
   itrack <- IdeogramTrack(genome = genome, 
                           chromosome = chr)
@@ -312,7 +321,6 @@ plotCNVs <- function(x, range, genome="hg38", drawGenes=FALSE,
   } 
   
   if(drawGenes) {
-    
     allg <- genes(txdb)
     allg.range <- subsetByOverlaps(allg, range)
     allg.range$symbol <- mapIds(Homo.sapiens.hg38::Homo.sapiens.hg38, 
@@ -328,25 +336,22 @@ plotCNVs <- function(x, range, genome="hg38", drawGenes=FALSE,
                                end = end(range),
                                name = "Genes")
     
-    plotTracks(c(itrack, gtrack, grtrack, cnvs.l), 
-               groupAnnotation = "caco", from = start(range),
+    plotTracks(c(itrack, gtrack, grtrack, cnvs.l, cnvs), 
+              from = start(range),
                to = end(range))
   }
   else{
-    plotTracks(c(itrack, gtrack, cnvs.l), 
-               groupAnnotation = "caco", from = start(rr),
+    plotTracks(c(itrack, gtrack, cnvs.l, cnvs), 
+               from = start(rr),
                to = end(rr))
   }
 }
-
-#We prove the CNVs of the gene SLC35E3
-##SLC35E3
-ImpGenes<- grep("SLC35E3", gr.commonSig$GENES, value = T)
-Imp1<-gr.commonSig[gr.commonSig$GENES==c(ImpGenes)]
-Imp1[3]<-subsetByOverlaps(cnvrControl,Imp1)
-
-rr <- GRanges("chr12:68e6-69e6")
-plotCNVs(Imp1, range=rr, drawGenes = TRUE, genome="hg38")
+#we prove in a region rich in CNVs
+rr5<-GRanges("chr12:27e6-32e6")
+Imp5<-c(gr.commonSig,subsetByOverlaps(cnvrControl,gr.commonSig))
+Imp5<-Imp5[width(Imp5)>199]
+plotCNVs(Imp5, range=rr5, drawGenes = TRUE, genome="hg38", 
+         mosaic = TRUE, col.cnvs = c("black", "white"))
 
 ```
 
