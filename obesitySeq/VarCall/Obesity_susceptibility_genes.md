@@ -734,6 +734,46 @@ head(summary(hgOver.kegg))
 save(hgOver.kegg, file="Data/EnrichmentKEGG.rda")
 ```
 
+Other database were consulted in order to see if the significan variants had been recorded and the MAF they record.
+
+``` r
+##Looking at AF from other databases
+
+library(MafDb.gnomADex.r2.0.1.GRCh38)
+library(MafDb.TOPMed.freeze5.hg38)
+
+mafgnomADex <- MafDb.gnomADex.r2.0.1.GRCh38
+mafTOPMed <- MafDb.TOPMed.freeze5.hg38
+
+obmafALLdb.01 <- gscores(mafgnomADex, obmaf.01, pop = "AF_NFE")
+obmafALLdb.01 <-gscores(mafTOPMed, obmafALLdb.01, pop = "AF")
+
+obmafALLdb.05 <- gscores(mafgnomADex, obmaf.05, pop = "AF_NFE")
+obmafALLdb.05 <-gscores(mafTOPMed, obmafALLdb.05, pop = "AF")
+
+names(mcols(obmafALLdb.01))["AF"]<-"AF_TOPMed"
+names(mcols(obmafALLdb.05))["AF"]<-"AF_TOPMed"
+
+save(obmafALLdb.01, file="~/data/WES_obesity/MAF_analysis/obmafALLdb.01.rda")
+save(obmafALLdb.05, file="~/data/WES_obesity/MAF_analysis/obmafALLdb.05.rda")
+
+
+obmafALLdb.01 <- obmafALLdb.01[!is.na(obmafALLdb.01$AF_TOPMed)]
+k<- obmafALLdb.01[(obmafALLdb.01$N_ob>=15)==TRUE & 
+                    (obmafALLdb.01$MAF>=0.45)==TRUE & 
+                    (obmafALLdb.01$EUR_AF<=0.1)==TRUE &
+                    (obmafALLdb.01$AF_TOPMed<=0.1)==TRUE,]
+
+obmafALLdb.05 <- obmafALLdb.05[!is.na(obmafALLdb.05$AF_TOPMed)]
+k2<- obmafALLdb.05[(obmafALLdb.05$N_ob>=15)==TRUE & 
+                    (obmafALLdb.05$MAF>=0.45)==TRUE & 
+                    (obmafALLdb.05$EUR_AF<=0.1)==TRUE &
+                    (obmafALLdb.05$AF_TOPMed<=0.1)==TRUE,]
+
+write.table(k[,-9], file = "variants01.txt", quote = FALSE, row.names = FALSE, sep="\t")
+write.table(k2[,-9], file = "variants05.txt", quote = FALSE, row.names = FALSE, sep = "\t")
+```
+
 References
 ==========
 
