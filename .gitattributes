@@ -1,0 +1,2 @@
+table6.txt filter=lfs diff=lfs merge=lfs -text
+table11.txt filter=lfs diff=lfs merge=lfs -text
