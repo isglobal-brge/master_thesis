@@ -1,6 +1,9 @@
 ---
 title: "Statistical analysis"
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
 ---
 
 # HELIX
@@ -10,7 +13,7 @@ First of all, EDY was calculated for the male individuals in the data set, as ex
 The association analysis were performed as follows: 
 
 ```
-libray(rexposome)
+library(rexposome)
 library(compareGroups)
 
 # edy.transcriptome_subcohort_notfitr is the EDY object created by getEDY
@@ -26,7 +29,7 @@ createTable(tt)
 ```
 
 The function `compareGroups` performs descriptives by groups for several variables.
-Depending whether the row-variable is considered as continuous normal-distributed (1), continuous non-normal distributed (2) or categorical (3), the following descriptives and tests are performed: 
+Depending on whether the row-variable is considered as continuous normal-distributed (1), continuous non-normal distributed (2) or categorical (3), the following descriptives and tests are performed: 
 
 1. mean, standard deviation and t-test or ANOVA 
 2. median, 1st and 3rd quartiles (by default), and Kruskall-Wallis test 
@@ -40,8 +43,4 @@ $1-pchisq(cor(as.integer(x),as.integer(y))^2*(length(x)-1),1)$
 where `x` is the row-variable and `y` is the grouping variable. 
 If there are two groups, the Odds Ratio is computed for each row-variable. While, if the response is of class `Surv` (i.e. time to event) Hazard Ratios are computed. 
 The p-values for Hazard Ratios are computed using the logrank or Wald test under a Cox proportional hazard regression when row-variable is categorical or continuous, respectively. 
-
-# GSE73103
-
-# GSE61256
 
