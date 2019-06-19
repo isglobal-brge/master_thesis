@@ -21,4 +21,5 @@ Repository of R/Bioc/shell code of master theses and graduate final projects **_
 # Graduate final projects
 
 - Clàudia Serrano. Parallel implementation of singular value decomposition with application to genomic data. Graduate of Mathematics, Universitat Autònoma de Barcelona (UAB). June 2019. [Script Repository](https://github.com/isglobal-brge/master_thesis/tree/master/parallel_SVD)
-
+- Daniel Guiñón Fort: Machine learning methods for Genome Wide Association Studies: Predicting diabetes risk from genomic data. Graduate of Statistics, Universitat Autònoma de Barcelona (UAB). September 2019. [Script Repository](https://github.com/isglobal-brge/master_thesis/tree/master/machine_learning_diabetes)
+- Dolors Pelegrí: Lineal algebra of Big Data: omic data analysis with DelayedArray objects. June 2019. [Bioconductor Package](https://github.com/isglobal-brge/BigDataStatMeth).
