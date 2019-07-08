@@ -1,6 +1,6 @@
 # Title
 
-Transcriptome signatures of secondary tumors after radiotherapy
+Transcriptome profiling of patients who developed a second tumor after radiotherapy
 
 # Author and advisor
 
