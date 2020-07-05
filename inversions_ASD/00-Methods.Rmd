@@ -1,0 +1,127 @@
+---
+title: "Methods"
+author: "Laura Balagué"
+date: "3/6/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Changing of Reference Genome 
+
+```{bash liftover}
+
+preproc='path/to/folder'
+
+## Set chromosome X as X (not 23)
+plink --bfile file_prefix --recode --out $preproc/file_prefix18 --output-chr MT 
+
+## Convert hg18 to hg19
+python liftOverPlink/liftOverPlink.py --map $preproc/file_prefix18.map --out $preproc/file_prefix_lifted --chain liftOverPlink/hg18ToHg19.over.chain.gz
+cut -f 4 $preproc/file_prefix_lifted.bed.unlifted | sed "/^#/d" > $preproc/file_prefix_to_exclude.dat 
+
+## Get ped/map files 
+plink --file $preproc/file_prefix18 --recode ped --out $preproc/file_prefix_int --exclude $preproc/file_prefix_to_exclude.dat 
+
+## Get bed/bim/fam files 
+plink --ped $preproc/file_prefix_int.ped --map $preproc/file_prefix_lifted.map --make-bed --out $preproc/hg19file_prefix
+
+```
+
+# Selection of European individuals
+
+```{bash peddy}
+## Prepare files for peddy - Make .vcf.gz file and index
+plink --bfile $preproc/hg19file_prefix --recode vcf-iid bgz --out $preproc/hg19file_prefix
+tabix -p vcf  $preproc/hg19file_prefix.vcf.gz
+
+## Change " " by tab in .fam file
+sed -i 's/ /\t/g' $preproc/hg19file_prefix.fam 
+
+## Run peddy
+python -m peddy -p 12 --prefix $preproc/hg19file_prefix $preproc/hg19file_prefix.vcf.gz $preproc/hg19file_prefix.fam
+
+## Extract European IDs
+awk '$16 == "EUR" && $17 >= 0.9 {print $1}' FS="," $preproc/hg19file_prefix.het_check.csv > $preproc/hg19file_prefix.EUR.txt
+for i in $(cat $preproc/hg19file_prefix.EUR.txt)
+do
+  cut -f1,2 $preproc/hg19file_prefix.fam | grep -w "$i"  - >> $preproc/hg19file_prefix.include
+done
+
+## Select Europeans and remove SNPs with missings
+plink --bfile $preproc/hg19file_prefix --keep $preproc/hg19file_prefix.include --geno 0.05 --make-bed --out $preproc/EUR_file_prefix
+```
+
+
+# Imputation
+
+```{bash imputeinversion}
+## Impute data
+imputeInversion/imputeinversion.sh -d $preproc/EUR_file_prefix -t 12 -i all 
+```
+
+
+# Genotyping with invClust
+invClust does not need imputation, so we work with the PLINK files with the selected European individuals. 
+
+```{r invclust}
+genofile <-'/path/to/file/EUR_file_prefix'
+
+inv_names <- c('1p22.1', '1q31.3', '2p22.3', '2q22.1', '3q26.1', '6p21.33', '6q23.1', '7p14.3', '7p11.2', '7q11.22', '7q36.1', '8p23.1', '10p12.1', '11p12', '11q13.2', '12q13.2', '12q21.2', '14q23.3', '16p11.2', '17q21.31', '21q21.3', 'Xq13.2')
+
+geno.data <- read.plink(genofile)
+geno<-geno.data$genotypes
+annot.read<-geno.data$map
+annot<-annot.read[,c(1,2,4)]
+
+for (i in 1:22){
+  invcall <- invClust(roi="/home/isglobal.lan/lbalague/homews/ROI.txt", wh = i, geno=geno, annot=annot, dim=2)
+  assign(paste0('invcall_', inv_names[i]), invcall)
+  inv <- invGenotypes(invcall)
+  assign(paste0('inv_', inv_names[i]), inv)
+}
+
+## Supplementary Material: 'ROI.txt' is needed. It is a tab-delimited text file with 1 inversion per row and 4 columns:
+#     chr (chromosome number)
+#     LBP (left breakpoint)
+#     RBP (right breakpoint)
+#     reg (inversion name)
+
+```
+
+# Genotyping with scoreInvHap
+
+scoreInvHap works with imputed data. imputeInversion makes a VCF file for each inversion, but scoreInvHap works with a file for each chromosome, so the first step is to join the VCFs of the same chromosome (for chromosomes 1, 2, 6, 7, 11 and 12)
+```{bash}
+## imputeInversion makes a VCF file for each inversion, but scoreInvHap works with a file for each chromosome, so the first step is to join the VCFs of the same chromosome (for chromosomes 1, 2, 6, 7, 11 and 12). It automatically makes the index file
+## Join chromosome 1 files
+java -jar ~/miniconda2/envs/peddy/share/picard-2.22.5-0/picard.jar MergeVcfs I=inv1_004_EUR_file_prefix_imputed.vcf.gz I=inv1_008_EUR_file_prefix_imputed.vcf.gz O=EUR_file_prefix_imputed.chr1.vcf.gz
+
+## Build index files for the chromosomes with one inversion
+for i in $(echo 3 8 10 14 16 17 21 X); do tabix -p vcf EUR_file_prefix_imputed.chr${i}.vcf.gz; done
+
+## Rename chromosomes from 1 to chr1
+## Supplementary Material: 'rename.txt' is needed. It is a two-column file with the actual chromosome names in the first column (1, 2 ... X, Y, M) and the new names un the second column (chr1, chr2 ... chrX, chrY, chrM)
+for i in $(echo 1 2 3 6 7 8 10 11 12 14 16 17 21 X); do bcftools annotate --rename-chrs rename.txt EUR_file_prefix_imputed.chr${i}.vcf.gz -O z -o EUR_file_prefix_imputed_renamed.chr${i}.vcf.gz & done
+
+## Index all renamed files
+for i in $(echo 1 2 3 6 7 8 10 11 12 14 16 17 21 X); do tabix -p vcf EUR_file_prefix_imputed_renamed.chr${i}.vcf.gz & done
+
+## Do .info.gz files for all
+## Supplementary Material: 'make_info.py' is needed
+for i in $(echo 1 2 3 6 7 8 10 11 12 14 16 17 21 X); do python make_info.py <(zcat EUR_file_prefix_imputed_renamed.chr${i}.vcf.gz) | gzip > EUR_file_prefix_imputed_renamed.chr${i}.info.gz & done
+```
+
+Run scoreInvHap
+```{bash}
+## Run scoreInvHap
+## A folder named 'scripts' with the helper script 'scoreInvHapImputationHelperFunctions.R' is needed in the same directory
+./scoreInvHap_GTEx.R EUR_file_prefix_imputed_renamed
+```
+
+
+
+
+
