@@ -1,0 +1,11 @@
+The links to visualize the html files are these ones:
+
+- [Discovery AGP](https://htmlpreview.github.io/?https://github.com/isglobal-brge/master_thesis/blob/master/inversions_ASD/01-discoveryAGP.html)
+
+- [Validation SSC](https://htmlpreview.github.io/?https://github.com/isglobal-brge/master_thesis/blob/master/inversions_ASD/02-validationSSC.html)
+
+- [Pool analysis AGP + SSC](https://htmlpreview.github.io/?https://github.com/isglobal-brge/master_thesis/blob/master/inversions_ASD/03-Pool-analysis.html)
+
+- [Validation INMA](https://htmlpreview.github.io/?https://github.com/isglobal-brge/master_thesis/blob/master/inversions_ASD/04-validationINMA.html)
+
+- [Gene expression analysis:](https://htmlpreview.github.io/?https://github.com/isglobal-brge/master_thesis/blob/master/inversions_ASD/05-expression.html)
