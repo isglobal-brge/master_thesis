@@ -3,6 +3,7 @@
 .RData
 .Ruserdata
 .Rbuildignore
+.DS_Store
 vignettes/.Rhistory
 master_thesis.Rproj
 
