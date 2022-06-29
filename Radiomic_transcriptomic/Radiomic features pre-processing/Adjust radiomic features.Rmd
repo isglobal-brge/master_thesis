@@ -3,6 +3,18 @@ title: "Adjust radiomic features: asses best linear model"
 author: "Carla Casanova"
 output: pdf_document
 date: '2022-06-21'
+header-includes:
+  - |
+    ```{=latex}
+    \usepackage{fvextra}
+    \DefineVerbatimEnvironment{Highlighting}{Verbatim}{
+      breaksymbolleft={}, 
+      showspaces = false,
+      showtabs = false,
+      breaklines,
+      commandchars=\\\{\}
+    }
+    ```
 ---
 
 ```{r setup, include=FALSE}

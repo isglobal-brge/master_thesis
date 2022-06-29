@@ -1,8 +1,21 @@
 ---
-title: "RNA-seq sputum sample"
+title: "RNA-seq sputum sample with PCs and clusters"
 author: "Carla Casanova"
 date: "6/6/2022"
 output: pdf_document
+header-includes:
+  - |
+    ```{=latex}
+    \usepackage{fvextra}
+    \DefineVerbatimEnvironment{Highlighting}{Verbatim}{
+      breaksymbolleft={}, 
+      showspaces = false,
+      showtabs = false,
+      breaklines,
+      commandchars=\\\{\}
+    }
+    ```
+
 ---
 
 ```{r setup, include=FALSE}
@@ -555,8 +568,9 @@ variables_interest <- data.frame(Sex = as.factor(phenoDataFrame$SEX),
 # Code for removing columns with some NA
 variables_interest <- variables_interest[ , apply(variables_interest, 2, function(x) !any(is.na(x)))]
 
-# count unique values for each variable
-sapply(lapply(variables_interest, unique), length)
+# Check for variables with only 1 factor to remove them from the analysis
+variables.1.factor <- sapply(lapply(variables_interest, unique), length)
+names(variables.1.factor[variables.1.factor == 1])
 #display unique values for each variable
 lapply(variables_interest[c("Smoke_history", 'Sex', 'Cough')], unique)
 # Remove variables with just one factor
@@ -889,26 +903,27 @@ geneUniverse.entrez <- unlist(mget(geneUniverse, envir=hgu133plus2ENTREZID, ifno
 ```{r GO_enrichment, eval=FALSE}
 library(org.Hs.eg.db)
 
-ans.go <- enrichGO(gene = deGenes.entrez, ont = "MF",
+ans.go <- enrichGO(gene = deGenes.entrez, ont = "BP",
+                   universe = geneUniverse.entrez,
                    OrgDb ="org.Hs.eg.db", 
                    readable=TRUE, pvalueCutoff = 0.05)
 
 # See results
-tab.go <- as.data.frame(ans.go) 
-tab.go<- subset(tab.go, Count>5) 
+tab.go <- as.data.frame(ans.go@result) 
+#tab.go<- subset(tab.go, Count>5) 
 tab.go[1:5, 1:6]
 ```
 
 **KEGG** enrichment analysis:  
 
 ```{r kegg, eval=FALSE}
-ans.kegg <- enrichKEGG(gene = deGenes.entrez, 
+ans.kegg <- enrichKEGG(gene = deGenes.entrez,
                        organism = 'hsa',
                        pvalueCutoff = 0.05) 
 
 # See results
-tab.kegg <- as.data.frame(ans.kegg)
-tab.kegg<- subset(tab.kegg, Count>5) 
+tab.kegg <- as.data.frame(ans.kegg@result)
+#tab.kegg<- subset(tab.kegg, Count>5) 
 tab.kegg[1:5, 1:6]
 ```
 
@@ -932,17 +947,19 @@ disgenet_api_key <- get_disgenet_api_key(email = "carlacasanovasuarez@gmail.com"
 Sys.setenv(DISGENET_API_KEY= disgenet_api_key)
 ```
 
-Start enrichment:  
+Start enrichment checking if genes related with respiratory diseases are present in the data set:  
+```{r enrichment_gene_universe}
+# Diseases enrichment analysis using gene universe
+res_enrich.universe <-disease_enrichment(entities = geneUniverse.entrez, vocabulary = "ENTREZ", database = "CURATED")
 
-```{r gene2disease}
-# Retrieve gene 2 disease
-gq <- gene2disease(gene = deGenes.entrez, 
-                   vocabulary = "ENTREZ",
-                   database = "CURATED", 
-                   score = c( 0.1,1))
-gq@qresult
+table_gene_universe <- res_enrich.universe@qresult
+
+# How many genes match respiratory diseases from our sample in curated data bases?
+length(grep("Respiratory", table_gene_universe$disease_class_name))
 ```
 
+
+Then perform disease enrichment for genes DE:   
 
 ```{r disgenet_enrichment}
 res_enrich <-disease_enrichment(entities = deGenes.entrez, vocabulary = "ENTREZ", database = "CURATED")
@@ -950,6 +967,7 @@ res_enrich <-disease_enrichment(entities = deGenes.entrez, vocabulary = "ENTREZ"
 res.table.disgenet <- res_enrich@qresult
 head(res.table.disgenet)
 ```
+
 
 **MSigDb** enrichment analysis (group C7 inmunologic signature):  
 
@@ -964,7 +982,25 @@ tab.tf <- as.data.frame(ans.tf@result)
 tab.tf[1:5,1:5]
 ```
 
+
+Plot significant enrichments:  
+
+```{r PC_enrichment_plots, eval=FALSE}
+# GO
+dotplot(ans.go, showCategory=20) + ggtitle("GO PC2") 
+
+# KEGG
+#x2 <- pairwise_termsim(ans.kegg.fo) 
+#emapplot(x2)
+
+# Disgenet plot() function only displays diseases from ratios > 0.4. 
+#plot(res_enrich, class = "Enrichment",  cutoff= 0.05) 
+```
+
+
 ## DE using cluster  
+
+Prepare clusters with more than 2 radiomic features and compute the mean as cluster value for each patient:  
 
 ```{r clust}
 hclustCarlos <- read.delim("/Users/carlacasanovasuarez/Downloads/consensus_class_k20.csv", sep = ",")
@@ -982,6 +1018,7 @@ df.wide <- pivot_wider(hclustCarlos.s, names_from = x, values_from = X)
 # Select clusters with more than 2 radiomic features
 clust.interest <- apply(df.wide, 2, function(x) {length(unlist(x)) > 2})
 df.wide.ok <- df.wide[,clust.interest]
+head(df.wide.ok)
 
 # Create a list with significative clusters and an empty data frame
 clusters.rf <- colnames(df.wide.ok)
@@ -1002,6 +1039,8 @@ colnames(dd) <- clusters.rf
 identical(rownames(dd), rownames(phenoDataFrame))
 head(dd)
 ```
+
+Compute selection of variables:  
 
 ```{r variables_clust}
 variables_interest <- data.frame(Sex = as.factor(phenoDataFrame$SEX), 
@@ -1046,8 +1085,9 @@ variables_interest <- variables_interest[ , apply(variables_interest, 2, functio
 ## Select counts
 countData <- counts.ok[rowSums(counts.ok) > 10, ]
 
-# count unique values for each variable
-sapply(lapply(variables_interest, unique), length)
+# Check for variables with only 1 factor to remove them from the analysis
+variables.1.factor <- sapply(lapply(variables_interest, unique), length)
+names(variables.1.factor[variables.1.factor == 1])
 
 # Remove variables with just one factor
 variables_interest[,"Smoke_history"] <- NULL
@@ -1134,7 +1174,7 @@ head(res$sv)
 variables_interest_sva <- DataFrame(variables_interest, res$sv)
 ```
 
-Perform DE analysis with voom:  
+Perform DE analysis with voom using clusters:  
 
 ```{r voom_normalize_clust}
 # Normalize data with voom and add tumor stage as covariate in design 

@@ -1,7 +1,20 @@
 ---
-title: "test parallel"
+title: "Radiomic features parallel RNA-seq analysis and enrichment"
 output: pdf_document
+author: "Carla Casanova"
 date: '2022-06-13'
+header-includes:
+  - |
+    ```{=latex}
+    \usepackage{fvextra}
+    \DefineVerbatimEnvironment{Highlighting}{Verbatim}{
+      breaksymbolleft={}, 
+      showspaces = false,
+      showtabs = false,
+      breaklines,
+      commandchars=\\\{\}
+    }
+    ```
 ---
 
 ```{r setup, include=FALSE}
@@ -69,8 +82,9 @@ variables_interest <- cbind(variables_interest, t(rdr_assay))
 ## Select counts
 countData <- counts.ok[rowSums(counts.ok) > 10, ]
 
-# count unique values for each variable
-sapply(lapply(variables_interest, unique), length)
+# Check for variables with only 1 factor to remove them from the analysis
+variables.1.factor <- sapply(lapply(variables_interest, unique), length)
+names(variables.1.factor[variables.1.factor == 1])
 
 # Remove variables with just one factor
 variables_interest[,"Smoke_history"] <- NULL
