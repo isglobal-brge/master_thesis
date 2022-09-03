@@ -18,7 +18,7 @@ header-includes:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE)
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE, cache = TRUE)
 knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 80), tidy = TRUE)
 ```
 
@@ -30,6 +30,7 @@ library(ggplot2)
 library(ggrepel)
 library(RColorBrewer)
 library(gridExtra)
+library(sva)
 ```
 
 ## Load data  
@@ -46,7 +47,7 @@ Filter by image type, only radiomic features from **original** images will be us
 ```{r filtering_image_type}
 ## filter by image types
 rdr_filt_original <- filter_by_image_type(rdr = rdr_L1, image_type = c("original"))
- 
+
 rdr_filt_original
 ```
 
@@ -120,25 +121,33 @@ n_color <- length(levels(dd.variables$Center))
 The following plot represents values for `mean` and `variance` coloured by `center ID`, since it is one of the most common variables causing batch effect in radiomics field. Three groups of individuals are clearly differentiated, of which different center composition is also spotted:  
 
 ```{r plot_raw_mean}
-qplot(dd.variables$Mean.original, dd.variables$Variance.original, colour = dd.variables$Center, xlab = "Mean", ylab = "Variance", main= "Raw mean and variance") + 
+#pdf("Mean pixel value and variance colored by center.pdf")
+
+qplot(dd.variables$Mean.original, dd.variables$Variance.original, colour = dd.variables$Center, xlab = "Mean normalized", ylab = "Variance normalized", main= "Non-adjusted mean and variance") + 
    labs(colour = 'Center ID') + scale_colour_manual(values = morecols(n_color))
+
+#dev.off()
 ```
 Clearly, `center ID` is affecting radiomic features' values between patients. Let's check data related with the range of pixel values of the images such as `minimum pixel value`. In addition, these values are plotted alongside `center ID` in order to check how much is affecting inter-center variability:  
 
 ```{r minimum_hist}
+#pdf("Minimum pixel value distribution colored by center.pdf")
+
 ggplot(data = dd.variables) +
   geom_histogram(aes(x = Minimum.original, fill = Center), binwidth = 0.25) +
-  labs(title ="Minimum pixel value by center ID", x= "Minimum pixel value scaled", y = "Counts", fill = "Center ID") + theme_bw() + scale_fill_manual(values = morecols(n_color))
+  labs(title ="Minimum pixel value distribution colored by center ID", x= "Minimum pixel value normalized", y = "Counts", fill = "Center ID") + theme_bw() + scale_fill_manual(values = morecols(n_color))
+
+#dev.off()
 ```
 
 Again, patients displayed different ranges since `minimum pixel values` are different, moreover they are clearly affected by `center ID`. However, see that distribution of `minimum pixel values` is also depending on center:  
 
 ```{r plot_minimum_center, fig.align='center', fig.height=8}
-#pdf("minimum distribution by center (raw).pdf")
+#pdf("Minimum distribution by center (raw).pdf")
 
 ggplot(data = dd.variables) +
   geom_histogram(aes(x = Minimum.original, fill = Center), binwidth = 0.25) +
-  labs(title ="Minimum pixel value by center ID", x= "Minimum pixel value scaled", y = "Counts", fill = "Center ID") + facet_wrap(.~Center,ncol=6) + theme_bw() + scale_fill_manual(values = morecols(n_color))
+  labs(title ="Distribution of minimum pixel values per center ID", x= "Minimum pixel value normalized", y = "Counts", fill = "Center ID") + facet_wrap(.~Center,ncol=6) + theme_bw() + scale_fill_manual(values = morecols(n_color))
 
 #dev.off()
 ```
@@ -194,8 +203,11 @@ Adjust by `minimum pixel value`:
 # You can adjust just some columns with: select = c("Mean.original", "Variance.original")
 clinical_features_min_vox_adj <- adjust(dd.variables, effect = "Minimum.original", keep_intercept = TRUE, exclude = c("Age", "Sex", "Smoker", "Cough", "Country", "GOLDCD"))
 
-qplot(clinical_features_min_vox_adj[,"Mean.original"], clinical_features_min_vox_adj[,"Variance.original"], colour = dd.variables$GOLDCD, xlab = "Mean", ylab = "Variance", main= "Adjusted by minimum") + 
-   labs(colour = 'GOLDCD')
+p1 <- qplot(clinical_features_min_vox_adj[,"Mean.original"], clinical_features_min_vox_adj[,"Variance.original"], colour = dd.variables$GOLDCD, xlab = "Mean", ylab = "Variance", main= "Adjusted by minimum") + 
+   labs(colour = 'GOLDCD', tag = "A") + 
+  theme(plot.tag = element_text(), plot.tag.position = c(0.01, 1))
+
+p1
 ```
 
 Adjust by `maximum pixel value`:  
@@ -205,8 +217,11 @@ Adjust by `maximum pixel value`:
 # You can adjust just some columns with: select = c("Mean.original", "Variance.original")
 clinical_features_max_vox_adj <- adjust(dd.variables, effect = "Maximum.original", keep_intercept = TRUE, exclude = c("Age", "Sex", "Smoker", "Cough", "Country", "GOLDCD"))
 
-qplot(clinical_features_max_vox_adj[,"Mean.original"], clinical_features_max_vox_adj[,"Variance.original"], colour = dd.variables$GOLDCD, xlab = "Mean", ylab = "Variance", main= "Adjusted by maximum") + 
-   labs(colour = 'GOLDCD')
+p2 <- qplot(clinical_features_max_vox_adj[,"Mean.original"], clinical_features_max_vox_adj[,"Variance.original"], colour = dd.variables$GOLDCD, xlab = "Mean", ylab = "Variance", main= "Adjusted by maximum") + 
+   labs(colour = 'GOLDCD', tag = "B") + 
+  theme(plot.tag = element_text(), plot.tag.position = c(0.01, 1))
+
+p2
 ```
 
 Adjust by `Center`:  
@@ -216,8 +231,11 @@ Adjust by `Center`:
 # You can adjust just some columns with: select = c("Mean.original", "Variance.original")
 clinical_features_center_adj <- adjust(dd.variables, effect = "Center", keep_intercept = TRUE, exclude = c("Age", "Sex", "Smoker", "Cough", "Country", "GOLDCD"))
 
-qplot(clinical_features_center_adj[,"Mean.original"], clinical_features_center_adj[,"Variance.original"], colour = dd.variables$GOLDCD, xlab = "Mean", ylab = "Variance", main= "Adjusted by center") + 
-   labs(colour = 'GOLDCD')
+p3 <- qplot(clinical_features_center_adj[,"Mean.original"], clinical_features_center_adj[,"Variance.original"], colour = dd.variables$GOLDCD, xlab = "Mean", ylab = "Variance", main= "Adjusted by center") + 
+   labs(colour = 'GOLDCD', tag = "C") + 
+  theme(plot.tag = element_text(), plot.tag.position = c(0.01, 1))
+
+p3
 ```
 
 Adjust by `Center` and `minimum`:  
@@ -227,8 +245,11 @@ Adjust by `Center` and `minimum`:
 # You can adjust just some columns with: select = c("Mean.original", "Variance.original")
 clinical_features_center_min_adj <- adjust(dd.variables, effect = c("Center", "Minimum.original"), keep_intercept = TRUE, exclude = c("Age", "Sex", "Smoker", "Cough", "Country"))
 
-qplot(clinical_features_center_min_adj[,"Mean.original"], clinical_features_center_min_adj[,"Variance.original"], colour = dd.variables$GOLDCD, xlab = "Mean", ylab = "Variance", main= "Adjusted by center and minimum") + 
-   labs(colour = 'GOLDCD')
+p4 <- qplot(clinical_features_center_min_adj[,"Mean.original"], clinical_features_center_min_adj[,"Variance.original"], colour = dd.variables$GOLDCD, xlab = "Mean", ylab = "Variance", main= "Adjusted by center and minimum") + 
+   labs(colour = 'GOLDCD', tag = "D") + 
+  theme(plot.tag = element_text(), plot.tag.position = c(0.01, 1))
+
+p4
 ```
 
 Adjust by `Center` and `minimum` plus some other covariates (age, sex, etc):  
@@ -238,8 +259,11 @@ Adjust by `Center` and `minimum` plus some other covariates (age, sex, etc):
 # You can adjust just some columns with: select = c("Mean.original", "Variance.original")
 clinical_features_multi_adj <- adjust(dd.variables, effect = c("Center", "Minimum.original", "Sex", "Country", "Cough"), keep_intercept = TRUE, exclude = c("Age", "Sex", "Smoker", "Cough", "Country"))
 
-qplot(clinical_features_multi_adj[,"Mean.original"], clinical_features_multi_adj[,"Variance.original"], colour = dd.variables$GOLDCD, xlab = "Mean", ylab = "Variance", main= "Adjusted by center, minimum, age, sex, country and cough") + 
-   labs(colour = 'GOLDCD')
+p5 <- qplot(clinical_features_multi_adj[,"Mean.original"], clinical_features_multi_adj[,"Variance.original"], colour = dd.variables$GOLDCD, xlab = "Mean", ylab = "Variance", main= "Adjusted by center, minimum, age, sex and cough") + 
+   labs(colour = 'GOLDCD', tag = "E") + 
+  theme(plot.tag = element_text(), plot.tag.position = c(0.01, 1), plot.title = element_text(size = 12))
+
+p5
 ```
 
 
@@ -267,7 +291,7 @@ simple_model_mean_center <- lm(Mean.original ~ Center, data = dd.variables)
 # By minimum
 simple_model_mean_min <- lm(Mean.original ~ Minimum.original, data = dd.variables)
 
-# By minimum
+# By maximum
 simple_model_mean_max <- lm(Mean.original ~ Maximum.original, data = dd.variables)
 
 # By center and minimum
@@ -303,8 +327,8 @@ model_mean_center_min_int <- lm(Mean.original ~ Minimum.original * Center, data 
 model_variance_center_min_int <- lm(Variance.original ~ Minimum.original * Center, data = dd.variables)
 
 # By center and minimum when interacting + multi
-multi_model_mean_center_min_int <- lm(Mean.original ~ Age + Sex + Country + Minimum.original * Center, data = dd.variables)
-multi_model_variance_center_min_int <- lm(Variance.original ~ Age + Sex + Country + Minimum.original * Center, data = dd.variables)
+multi_model_mean_center_min_int <- lm(Mean.original ~ Age + Sex + Cough + Minimum.original * Center, data = dd.variables)
+multi_model_variance_center_min_int <- lm(Variance.original ~ Age + Sex + Cough + Minimum.original * Center, data = dd.variables)
 
 # Store residuals of simple interaction model to make plots
 Results1 <- data.frame(row.names = rownames(dd.variables), Mean = residuals(model_mean_center_min_int), Variance = residuals(model_variance_center_min_int))
@@ -317,10 +341,15 @@ set.label1 <- ifelse(Results1[,"Mean"] > 1.5 | Results1[,"Variance"] > 2, rownam
 set.label2 <- ifelse(Results2[,"Mean"] > 1.5 | Results2[,"Variance"] > 2, rownames(Results2), "")
 
 # Plot results
-qplot(Results1[,"Mean"], Results1[,"Variance"], colour = dd.variables$GOLDCD, xlab = "Mean", ylab = "Variance", main = "Simple interaction between center and minimum") + 
-   labs(colour = 'GOLDCD') + geom_text_repel(aes(label = set.label1))
-qplot(Results2[,"Mean"], Results2[,"Variance"], colour = dd.variables$GOLDCD, xlab = "Mean", ylab = "Variance", main = "Interaction between center and minimum + covariates") + 
-   labs(colour = 'GOLDCD') + geom_text_repel(aes(label = set.label2))
+p6 <- qplot(Results1[,"Mean"], Results1[,"Variance"], colour = dd.variables$GOLDCD, xlab = "Mean", ylab = "Variance", main = "Simple interaction between center and minimum") + 
+   labs(colour = 'GOLDCD', tag = "F") + 
+  theme(plot.tag = element_text(), plot.tag.position = c(0.01, 1)) + geom_text_repel(aes(label = set.label1))
+p7 <- qplot(Results2[,"Mean"], Results2[,"Variance"], colour = dd.variables$GOLDCD, xlab = "Mean", ylab = "Variance", main = "Interaction between center and minimum + covariates") + 
+   labs(colour = 'GOLDCD', tag = "G") + 
+  theme(plot.tag = element_text(), plot.tag.position = c(0.01, 1)) + geom_text_repel(aes(label = set.label2))
+
+p6
+p7
 ```  
 
 
@@ -334,12 +363,19 @@ rmse(fitted(model_mean_center_min_int), dd.variables$Mean.original)
 rmse(fitted(multi_model_mean_center_min_int), dd.variables$Mean.original)
 ```
 
+
+```{r final_figure, eval=FALSE}
+# Save a figure with all the previous plots together and arranged
+p <- grid.arrange(p1, p2, p3, p4, p5, p6, p7, ncol = 2)
+ggsave("Different residuals for mean and variance.pdf",p, width=6, height=6, units="cm", scale=4)
+```
+
 ## Conclusion  
 `Minimum pixel value` adjust data better than `Center` (RSS equal to 110.5897 and 141.3399 respectively), but when both are used as covariates the model fits better (RSS equal to 58.41367). When using multivariate model (adding `Age`, `Sex`, `Country`, `Cough`), the model is slightly improved (RSS equal to 57.40919). In addition, `maximum pixel value` does not fit the model well and it might be possible due to the presence of several outliers (RSS equal to 1130.321).  
 
 Nevertheless, the best improvement is when `Center` and `minimum` interact with each other (RSS equal to 40.12806). Adding more covariates to the previous interaction also improves slightly this model (RSS equal to 39.84061).  
 
-## Use the best model to adjust radiomic features  
+## Asses radiomic features after using the best fit for regression model    
 
 As previously seen, the best model is `minimum` and `center ID` interaction with covariates. Nevertheless, since some covariates have `NaN` and the model is also a good fit without using them, only `minimum` and `center ID` interaction has been considered:  
 
@@ -363,14 +399,17 @@ Compare data distribution of raw and adjusted features:
 # Raw Mean
 plt1 <- ggplot(data = table_scaled.T) +
   geom_histogram(aes(x = Mean.original), binwidth = 0.25) +
-  labs(title ="Distribution of raw mean", x= "Raw mean of pixel values scaled", y = "Counts") + theme_bw() 
+  labs(title ="Distribution of raw mean", x= "Raw mean of pixel values scaled", y = "Counts", tag = "A") + 
+  theme(plot.tag = element_text(), plot.tag.position = c(0.01, 1)) + theme_bw()
 
 # Adjusted Mean
 plt2 <- ggplot(data = as.data.frame(mat_res)) +
   geom_histogram(aes(x = Mean.original), binwidth = 0.25) +
-  labs(title ="Distribution of adjusted mean", x= "Adjusted mean of pixel values", y = "Counts") + theme_bw()
+  labs(title ="Distribution of adjusted mean", x= "Adjusted mean of pixel values", y = "Counts", tag = "") + 
+  theme(plot.tag = element_text(), plot.tag.position = c(0.01, 1)) + theme_bw()
 
-grid.arrange(plt1, plt2, ncol=2)
+p.mean1 <- grid.arrange(plt1, plt2, ncol=2)
+p.mean1
 ```
 
 Check normally distributed features by using **Shapiro test**:  
@@ -391,6 +430,159 @@ table(normal.raw)
 
 As can be spotted, radiomic features are not normally distributed neither in raw data nor in adjusted data. Nevertheless, histogram of mean pixel values was improved even though there are some individuals highly dispersed. Thefore, data has been transformed from **bimodal distribution** to **right skewed**, nevertheless highly variable individuals can be removed for the analysis.  
 
+Finally, we can check if adjusting data by using linear regression transforms radiomic features compared with original:  
+
+```{r corr_raw_adj}
+# First check if both data frames (adjusted and raw radiomic features) share the same order
+identical(colnames(mat_res), colnames(table_scaled.T))
+
+# Store total number of features and create an empty data frame to store results
+number_features <- ncol(table_scaled.T)
+cor_results <- data.frame(row.names = colnames(table_scaled.T))
+
+# Check for correlations between adjusted and raw data by iterating by columns in both objects
+for (i in 1:number_features){
+  cor_results[i,1] <- cor(table_scaled.T[,i], mat_res[,i])
+}
+
+# Check names of adjusted radiomic features that are not correlated with raw data
+affected_features_lm <- cor_results %>%
+  filter(V1 < 0.8) %>%
+  mutate(V1 = round(V1, 4))
+
+affected_features_lm
+```
+
+```{r save_table, eval=FALSE}
+write.csv(affected_features_lm, file = "Decorrelated radiomic features (regression model).csv")
+```
+
+Check one feature highly transformed:  
+
+```{r plot_mean_corr}
+#pdf("Comparision of adjusted mean vs raw.pdf")
+
+p.mean2 <- qplot(table_scaled.T$Mean.original, as.data.frame(mat_res)$Mean.original, xlab = "Mean raw", ylab = "Mean adjusted", main= "Raw mean against adjusted mean")+
+  labs(tag = "B") + 
+  theme(plot.tag = element_text(), plot.tag.position = c(0.01, 1))
+
+p.mean2
+
+#dev.off()
+```
+
+
+```{r plot_mean_transformation, eval=FALSE}
+p.mean.final <- grid.arrange(p.mean1, p.mean2, ncol=1)
+ggsave("Mean transformation.pdf",p.mean.final, width=6, height=7, units="cm", scale=4)
+```
+
+Check one feature not transformed:  
+
+```{r plot_elongation_corr}
+qplot(table_scaled.T$Elongation.original, as.data.frame(mat_res)$Elongation.original, xlab = "Elongation raw", ylab = "Elongation adjusted", main= "Raw elongation against adjusted elongation") 
+```
+
+## Combat  
+Let's asses the `Combat` method for adjusting radiomic features:  
+
+```{r features_combat}
+phenoRF <- colData(rdr_filt_original)
+
+batch = as.factor(phenoRF$CENTREID)
+#mod = model.matrix(~as.factor(cancer), data=pheno)
+
+# parametric adjustment
+combat_RFdata1 = ComBat(dat=table_scaled, batch=batch, mod=NULL, par.prior=TRUE, prior.plots=FALSE)
+
+# non-parametric adjustment, mean-only version
+#combat_RFdata1 = ComBat(dat=table_scaled, batch=batch, mod=NULL, par.prior=FALSE, mean.only=TRUE)
+```
+
+
+```{r plot_mean_combat}
+qplot(table_scaled.T$Mean.original, as.data.frame(t(combat_RFdata1))$Mean.original, xlab = "Mean raw", ylab = "Mean adjusted", main= "Raw mean against adjusted mean") 
+```
+
+Check raw mean correlation with adjusted mean when using `Combat`:  
+
+```{r corr_combat}
+cor(table_scaled.T$Mean.original, as.data.frame(t(combat_RFdata1))$Mean.original)
+```
+
+Check how many features are significantly different from raw data:  
+
+```{r corr_raw_adj_combat}
+# Transpose adjusted data in order to compare features
+combat_RFdata1.T <- t(combat_RFdata1)
+
+# First check if both data frames (adjusted and raw radiomic features) share the same order
+identical(colnames(combat_RFdata1.T), features_original)
+
+# Store total number of features and create an empty data frame to store results
+number_features <- ncol(table_scaled.T)
+cor_results2 <- data.frame(row.names = colnames(table_scaled.T))
+
+# Check for correlations between adjusted and raw data by iterating by columns in both objects
+for (i in 1:number_features){
+  cor_results2[i,1] <- cor(table_scaled.T[,i], combat_RFdata1.T[,i])
+}
+
+# Check names of adjusted radiomic features that are not correlated with raw data
+transformed.features2 <- which(cor_results2 < 0.8 & cor_results2 > 0)
+features_original[transformed.features2]
+```
+
+Finally, let's explore if `Combat` method removed **batch effect** caused by `Center`:  
+
+```{r check_batch_effect_combat}
+# Show ID of highly dispersed patients
+set.label.combat <- ifelse(combat_RFdata1.T[,"Mean.original"] > 1 | combat_RFdata1.T[,"Variance.original"] > 3 | combat_RFdata1.T[,"Mean.original"] < -1.5, rownames(combat_RFdata1.T), "")
+
+pdf("ComBat mean and variance by stage.pdf")
+
+# Plot mean against variance corrected with ComBat
+qplot(combat_RFdata1.T[,"Mean.original"], combat_RFdata1.T[,"Variance.original"], xlab = "Mean", ylab = "Variance", main= "Correcting multi-center batch effect of radiomic features by using ComBat", color = as.factor(colData(rdr_filt_original)$GOLDCD)) + labs(color = "GOLDCD", y = "Corrected variance", x = "Corrected mean")  #geom_text_repel(aes(label = set.label.combat))
+
+dev.off()
+```
+
+
+```{r mean_distribution_ComBat}
+# Raw Mean
+plt1.C <- ggplot(data = table_scaled.T) +
+  geom_histogram(aes(x = Mean.original), binwidth = 0.25) +
+  labs(title ="Distribution of raw mean", x= "Raw mean of pixel values scaled", y = "Counts", tag = "A") + 
+  theme(plot.tag = element_text(), plot.tag.position = c(0.01, 1)) + theme_bw()
+
+# Adjusted Mean
+plt2.C <-  ggplot(data = as.data.frame(combat_RFdata1.T)) +
+  geom_histogram(aes(x = Mean.original), binwidth = 0.25) +
+  labs(title ="Distribution of corrected mean by ComBat", x= "Adjusted mean of pixel values", y = "Counts", tag = "B") + 
+  theme(plot.tag = element_text(), plot.tag.position = c(0.01, 1)) + theme_bw()
+
+p.mean.C <- grid.arrange(plt1.C, plt2.C, ncol=2)
+
+ggsave("Mean transformation ComBat.pdf",p.mean.C, width=6, height=4, units="cm", scale=5)
+```
+
+After using `Combat` technique, three different groups of individuals are still spotted. Nevertheless, individuals are closer compared to raw data, and all the features correlate with the original ones (it is not transforming data as aggressively as regression model).  
+
+Finally, we can check if features remain properly standardized in both methods:  
+
+```{r compare_mean_data}
+mean.features.scaled <- data.frame(Mean.combat = rowMeans(combat_RFdata1), Mean.residuals = rowMeans(t(mat_res)), row.names = rownames(combat_RFdata1))
+
+mean.features.scaled
+```
+
+
+```{r compare_sd_data}
+sd.features.scaled <- data.frame(sd.combat = rowSds(combat_RFdata1), sd.residuals = rowSds(t(mat_res)), row.names = rownames(combat_RFdata1))
+
+sd.features.scaled
+```
+
 ## Exporting the best model to rdr object  
 Before storing the adjusted data back to the `rdr` object, prepare the table for having the same format than the original data:  
 
@@ -409,31 +601,51 @@ variable.ind <- intersect(set.label1, colnames(assay_adjusted_original))
 
 # Filter radiomic assay and rdr object
 assay_adjusted_original <- assay_adjusted_original[,!(colnames(assay_adjusted_original) %in% variable.ind)]
-rdr_filt_original <- rdr_filt_original[,!(colnames(rdr_filt_original) %in% variable.ind)]
+rdr_filt_original_new <- rdr_filt_original[,!(colnames(rdr_filt_original) %in% variable.ind)]
 
 # Check individuals have the same order in both objects ordered
-identical(colnames(rdr_filt_original), colnames(assay_adjusted_original))
+identical(colnames(rdr_filt_original_new), colnames(assay_adjusted_original))
 
 # Check rdr
-rdr_filt_original
+rdr_filt_original_new
 ```
 
 Finally, add a new `assay` to `rdr` object and save it:  
 
 ```{r add_assay_original}
 # This code allows adding assays to rdr object
-assays(rdr_filt_original)$adjusted_min_int_center <- assay_adjusted_original
+assays(rdr_filt_original_new)$adjusted_min_int_center <- assay_adjusted_original
 ```
 
 Save the object:  
 ```{r save_data_adjusted, eval=FALSE}
-save(rdr_filt_original, file = "/Users/carlacasanovasuarez/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/radar_L1_Norm_scaled_adjusted_min_int_center.rda")
+save(rdr_filt_original_new, file = "/Users/carlacasanovasuarez/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/radar_L1_Norm_scaled_adjusted_min_int_center.rda")
 ```
 
+Do the same as previosly seen, but for saving `Combat` method:  
 
+```{r export_combat}
+# Store highly variable individuals
+variable.ind.combat <- intersect(set.label.combat, colnames(combat_RFdata1))
 
+# Filter radiomic assay and rdr object
+combat_RFdata1 <- combat_RFdata1[,!(colnames(combat_RFdata1) %in% variable.ind.combat)]
+rdr_filt_original_new_com <- rdr_filt_original[,!(colnames(rdr_filt_original) %in% variable.ind.combat)]
 
+# Check individuals have the same order in both objects ordered
+identical(colnames(rdr_filt_original_new_com), colnames(combat_RFdata1))
 
+# This code allows adding assays to rdr object
+assays(rdr_filt_original_new_com)$adjusted_combat <- combat_RFdata1
 
+# Check rdr
+rdr_filt_original_new_com
+```
+
+Save the object:  
+
+```{r save_data_adjusted_combat, eval=FALSE}
+save(rdr_filt_original_new_com, file = "/Users/carlacasanovasuarez/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/radar_L1_Norm_scaled_adjusted_combat.rda")
+```
 
 

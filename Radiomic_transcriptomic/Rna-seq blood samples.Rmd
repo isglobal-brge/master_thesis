@@ -1,0 +1,1236 @@
+---
+title: "RNA-seq blood sample"
+author: "Carla Casanova"
+date: "6/6/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r libraries}
+library(dplyr)
+# Fir filterbyExpression function
+library(edgeR)
+# plotRLE
+library(EDASeq)
+library(tidyverse)
+library(SummarizedExperiment)
+library(ggplot2)
+library(RColorBrewer)
+# For aheatmap function
+library(NMF)
+# For automatic selection of variables to adjust the model
+library(leaps)
+library(sva)
+library(EnhancedVolcano)
+library(factoextra)
+library(FactoMineR)
+library(clusterProfiler)
+# For ggpar function
+library(ggpubr)
+library(gridExtra)
+library(cowplot)
+library(enrichplot)
+library(annotate)
+library(hgu133plus2.db)
+library(org.Hs.eg.db)
+```
+
+## Loading data  
+
+```{r load_rdr}
+#load("/Users/carla/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/results/radar_object_Norm_L1.rda")
+
+load("/Users/carlacasanovasuarez/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/radar_L1_Norm_scaled_adjusted_min_int_center_final.rda")
+
+rdr_L1_final
+```
+
+```{r load_eset}
+load("/Users/carlacasanovasuarez/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Transcriptomics/eset_blood.rda")
+
+blood_eset
+```
+
+## Checking patients having both: transcriptomic and image data  
+First of all, remember that patients of `rdr` object are represented with `SUBJID` while the `Expression set` object has `D_SUBJID`. Now, let's check which patients with image data have also transcriptomic data:  
+
+```{r patients_genes}
+# Change patient ID in rdr object
+colnames(rdr_L1_final) <- colData(rdr_L1_final)$D_SUBJID
+
+# Are all the patients having proper ID conversion? Check for NaN
+table(is.na(colnames(rdr_L1_final)))
+
+# Save patients names for each object
+patients_eset <- colnames(blood_eset)
+patients_rdr <- colnames(rdr_L1_final)
+
+# See patients with both: radiomic features and transcriptomic data. The result are the D_SUBJID for common patients
+# Put IDs as character, otherwise it will take IDs as number of row when filtering
+common_transcrip <- as.character(intersect(patients_rdr, patients_eset))
+```
+
+So, let's filter and check both objects to have the same patients:  
+
+```{r filtering_objects}
+# Filter patients that are common in both objects
+rdr_L1_filt <- rdr_L1_final[,common_transcrip]
+blood_eset_filt <- blood_eset[,common_transcrip]
+
+# Check that you have the same amount of patients in both
+dim(rdr_L1_filt)
+dim(blood_eset_filt)
+
+# Check that patients are the same and equally ordered
+identical(colnames(rdr_L1_filt), colnames(blood_eset_filt))
+```
+
+## Storing data  
+Store `colData` and `assay` from `rdr` object:  
+
+```{r coldata}
+# Store clinical data for patients with radiomic features
+rdr_colData <- as.data.frame(colData(rdr_L1_filt)) %>%
+  relocate(D_SUBJID, .after = SUBJID)
+
+# Store adjusted radiomic features 
+rdr_assay <- assay(rdr_L1_filt, 2)
+
+# Scale radiomic features
+rdr_assay.scaled <- scale(rdr_assay)
+```
+
+Storing **phenotype**, **expression** and **annotation** data from `Expression set` object:  
+
+```{r get_data_eset}
+# Transcriptomic data
+counts <- exprs(blood_eset_filt)
+
+# Phenotipic data
+# Retrieves the subjects’ phenotypes in an AnnotatedDataFrame object 
+pheno_blood <- phenoData(blood_eset_filt)
+# pData() converts the phenotipic data to a data frame 
+phenoDataFrame_blood <- pData(blood_eset_filt)
+
+# Annotation data
+annotation.blood <- fData(blood_eset_filt)
+```
+
+## Exploring variables  
+
+```{r group_variable}
+# Check groups in expression set
+table(phenoDataFrame_blood$GROUP)
+table(is.na(phenoDataFrame_blood$GROUP))
+
+table(phenoDataFrame_blood$GOLDCD)
+table(is.na(phenoDataFrame_blood$GOLDCD))
+
+# Check groups in rdr object
+table(rdr_colData$GOLDCD)
+table(is.na(rdr_colData$GOLDCD))
+```
+
+Dictionary for GOLD classification:  
+
+* 0=GOLD 0: Control (FEV1 > 80% FEV1/FVC > 0.7)
+* 1=GOLD 1: (FEV1 > 80% FEV1/FVC < 0.7)
+* 2=GOLD 2: (50% < FEV1 < 80% FEV1/FVC < 0.7)
+* 3=GOLD 3: (30% < FEV1 < 50% FEV1/FVC < 0.7)
+* 4=GOLD 4: (FEV1 < 30% FEV1/FVC < 0.7)  
+
+Let's transform three stages into a binary variable (moderate, severe):  
+
+```{r GOLD_stages_classification}
+# Group by tumor stages
+stage <- phenoDataFrame_blood$GOLDCD
+ids.moderate <- grep(paste(2, sep="|"), stage)
+
+ids.severe <- grep(paste(3, 4, sep="|"), stage)
+
+phenoDataFrame_blood$GROUP_bin <- rep(NA, ncol(blood_eset_filt))
+phenoDataFrame_blood$GROUP_bin[ids.moderate] <- "Moderate"
+phenoDataFrame_blood$GROUP_bin[ids.severe] <- "Severe"
+phenoDataFrame_blood$GROUP_bin <- as.factor(phenoDataFrame_blood$GROUP_bin)
+```
+
+## Exploring gene counts  
+First, analyze **library sizes** between samples:  
+
+```{r counts_data}
+# Check that the sum of each column is not equal to 10^6 since values have RPKM normalization
+colSums(counts, na.rm=TRUE)
+```
+
+```{r library_size}
+# Number of reads in that sample (library size)
+lib.size.blood <- colSums(counts, na.rm = TRUE)
+
+barplot(lib.size.blood, names = colnames(counts_blood))
+mtext(side = 1, text = "Samples", line = 4)
+mtext(side = 2, text = "Library size (millions)", line = 3)
+title("Barplot of library sizes of blood samples")
+```
+
+```{r log_trans}
+# logsignal values
+counts.log <- log10(counts)
+
+boxplot(counts.log, xlab="", ylab="Log10 counts per million",las=2)
+abline(h=median(counts.log, na.rm = TRUE),col="blue")
+title("Boxplots of logCPMs (unnormalised)")
+```
+
+From the boxplots we see that overall the density distributions of raw log-intensities are not identical but still not very different. If a sample is really far above or below the blue horizontal line we may need to investigate that sample further.  
+
+### Gene selection  
+Now, let's select genes for the analysis using `filterByExpr` from `edgeR` package (based on minimum library size) and 
+
+```{r select_genes}
+# Remove data with NA values
+counts.ok <- counts[complete.cases(counts),]
+dim(counts.ok)
+
+# Create groups
+group <- phenoDataFrame_blood$GOLDCD
+group <- factor(group)
+
+# Use edgeR package to create a DGEList object with gene matrix to filter genes
+y = DGEList(counts=counts.ok, group = group)
+
+# Check rows of clinical data and DGEList object before adding more variables
+identical(rownames(y$samples), rownames(phenoDataFrame_blood))
+y$samples$Stage <- phenoDataFrame_blood$GROUP_bin
+y$samples$Cough <- phenoDataFrame_blood$COUGH
+y$samples$Sex <- phenoDataFrame_blood$SEX
+
+# Filter genes with 
+keep <- filterByExpr(y)
+table(keep)
+#counts.ok <- counts[keep, ,keep.lib.sizes=FALSE]
+#dim(counts.ok)
+```
+
+The number of genes with high and low proportions of missing values can be quickly visualized to evaluate if there are candidate genes to be included in DE (very low NaN):  
+
+```{r na.fr}
+fraction_na <- apply(counts, 1, function(x) {table(is.na(x))})
+
+fraction_na.test <- as.data.frame(unlist(fraction_na))
+
+index <- grep("*.TRUE", rownames(fraction_na.test))
+
+fraction_na.test.TRUE <- as.data.frame(fraction_na.test[index,])
+
+fraction_na.test.TRUE$ratio <- fraction_na.test.TRUE[, 1] / 113
+
+# Check number of genes with lower and higher proportion of missing values
+table(fraction_na.test.TRUE$ratio)
+
+# Total number of genes with percentage of NaN values less or equal to 10%
+fraction_na.test.TRUE %>%
+  filter(ratio <= 0.1) %>%
+  nrow()
+```
+
+In this case, all complete cases are considered for the analysis.  
+
+```{r filter_annot}
+# Filter data frame with features information by removing genes that are not desired for the current analysis
+identical(rownames(counts.ok), rownames(annotation.blood))
+filter_rows <- intersect(rownames(counts.ok), rownames(annotation.blood))
+annotation.blood.ok <- as.data.frame(annotation.blood[filter_rows,])
+identical(rownames(counts.ok), annotation.blood.ok$PROBEID)
+
+rownames(annotation.blood.ok) <- annotation.blood.ok$PROBEID
+```
+
+
+### Check normalization  
+First of all, should the following should be considered. TMM normalizes the library sizes to produce **effective library sizes**. **CPM** values are counts normalized by the effective library sizes. **RPKM** values are counts normalized by effective library sizes and by gene/feature length [(Biostars)](https://www.biostars.org/p/9475236/). Hence, RPKM has been computed using by using **normalization factors** that correct the library size-scaled values for the compositional component. This here is what the **Trimmed Mean of M-values (TMM)** does. So, in practce steps when using `edgeR` include:  
+
+```
+#/ make the DGEList:
+y <- DGEList(...)  
+
+#/ calculate TMM normalization factors:
+y <- calcNormFactors(y)
+
+#/ get the normalized counts:
+cpms <- cpm(y, log=FALSE)
+```  
+
+Let's check **RPKM** counts with a MA plot in order to see if data has been properly normalized:  
+
+```{r MA_plot}
+maPlot(counts.ok[,1], counts.ok[,2], pch=19, cex=.5, ylim=c(-5,5), 
+       allCol="darkgray", lowess=TRUE, 
+       xlab=expression( A == log[2] (sqrt(Sample1 %.% Sample3)) ), 
+       ylab=expression(M == log[2](Sample1/Sample3))) 
+grid(col="black")
+title("RPKM data")
+```
+
+
+```{r RLE_pot}
+color = ifelse(phenoDataFrame$GROUP_bin=="Moderate", "black", "brown3")
+
+plotRLE(counts.ok, outline=FALSE, 
+        ylim=c(-2, 2), col = color,
+        main = 'Normalized Counts (RPKM)')
+```
+
+
+```{r RLE_pot_log}
+color = ifelse(phenoDataFrame$GROUP_bin=="Moderate", "black", "brown3")
+
+plotRLE(counts.log, outline=FALSE, 
+        ylim=c(-0.3, 0.3), col = color,
+        main = 'Log-transformed Counts (RPKM)')
+```
+
+
+```{r shapiro}
+# Test normality of RPKM values
+shap.RPKM <- shapiro.test(counts.ok[1,])
+
+# Test normality of log values
+shap.log <- shapiro.test(counts.log[1,])
+
+# Check results
+shap.log
+shap.RPKM
+```
+
+### Multidimensional analysis PCA
+
+```{r PCA_analysis}
+# Compute the variance of each gene across samples
+V <- apply(counts.ok.blood, 1, var)
+#sort the results by variance in decreasing order
+#and select the top 500 genes
+selectedGenes <- names(V[order(V, decreasing = TRUE)][1:500])
+
+# Perform PCA
+#pcaResults1 <- prcomp(t(counts.log[selectedGenes,]),scale = TRUE)
+pcaResults.blood <- PCA(t(counts.ok.blood[selectedGenes,]),graph = FALSE)
+```
+
+See explained varibility for each principal component:  
+
+```{r summary_PCA}
+summary(pcaResults.blood)
+```
+
+PCA for patients:  
+
+```{r PCA_patients_genes_plot}
+#pdf("PCA gene counts blood by stage.pdf")
+
+qplot(pcaResults.blood$ind$coord[,1], pcaResults.blood$ind$coord[,2], xlab = "PC1", ylab = "PC2", main = "Scaled PCA of patients with blood samples", colour = phenoDataFrame_blood$SEX) + 
+  labs(colour = "COPD stage")
+
+#dev.off()
+```
+
+Adding ellipses:  
+
+```{r ellipses_gene_PCA}
+pPCA1 <- ggpar(fviz_pca_ind(pcaResults.blood,
+label = "none", # hide individual labels
+habillage = phenoDataFrame_blood$GROUP_bin, # color by groups palette = c("#00AFBB", "#E7B800"),
+addEllipses = TRUE # Concentration ellipses
+), title = "Individuals with blood samples colored by COPD stage", font.main = c(8, "plain", "black"), legend.title = "COPD stage", caption = "A", font.caption = c(12, "bold", "black"))
+
+pPCA2 <- ggpar(fviz_pca_ind(pcaResults.blood,
+label = "none", # hide individual labels
+habillage = as.factor(phenoDataFrame_blood$SEX), # color by groups palette = c("#00AFBB", "#E7B800"),
+addEllipses = TRUE # Concentration ellipses
+), title = "Individuals with blood samples colored by sex", font.main = c(8, "plain", "black"), legend.title = "Sex", caption = "B", font.caption = c(12, "bold", "black"))
+```
+
+Individuals contribution:  
+
+```{r ind_cont_gene_PCA}
+pPCA3 <- ggpar(fviz_pca_ind(pcaResults.blood, col.ind = "contrib",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE # Avoid text overlapping (slow if many points)
+             ), title = "Individuals with blood samples colored by contribution (%)", font.main = c(7, "plain", "black"), caption = "C", font.caption = c(12, "bold", "black"))
+```
+
+Final plot:  
+
+```{r ind_final_plot_gene_PCA}
+#pAll <- plot_grid(pPCA1, NULL, pPCA2, pPCA3, labels=c("A", "", "B", "C"), ncol = 2, rel_widths = c(3, 4))
+
+pAll <- grid.arrange(pPCA1, pPCA2, pPCA3, ncol = 2, 
+             layout_matrix = rbind(c(1,2), c(3,3)))
+
+ggsave("PCA blood individuals.pdf",pAll, width=6, height=6, units="cm", scale=3.5)
+```
+
+PCA for genes:  
+
+```{r PCA_DESeq_plot}
+qplot(pcaResults.blood$var$coord[,1], pcaResults.blood$var$coord[,2], xlab = "PC1", ylab = "PC2", main = "Scaled PCA of genes")
+```
+
+```{r plot_MDS}
+color.gr <- ifelse(phenoDataFrame_blood$GROUP_bin=="Moderate", "blue", "coral")
+color.cough <- ifelse(phenoDataFrame_blood$COUGH=="Chronic cough", "red", "green")
+color.sex <- ifelse(phenoDataFrame_blood$SEX=="F", "orange", "purple")
+
+#par(mfrow=c(2,2))
+
+plotMDS(y, col= color.gr)
+legend("topleft",fill=c("blue","coral"),legend=levels(phenoDataFrame$GROUP_bin))
+title("Stage")
+
+plotMDS(y, col= color.cough)
+legend("bottomleft",fill=c("red","green"),legend=levels(as.factor(phenoDataFrame$COUGH)))
+title("Cough")
+
+plotMDS(y, col= color.sex)
+legend("topleft",fill=c("orange","purple"),legend=levels(as.factor(phenoDataFrame$SEX)))
+title("Sex")
+```
+
+As can be seen in the previous analysis, patients are not clustered by COPD stage. These stages (Moderate and Severe) are likely to present similar gene expression, since patients are mixed.  
+
+Nevertheless, this does not mean that counts are not properly normalized. The **mean-difference plots** show average expression (mean: x-axis) against log-fold-changes (difference: y-axis). Imagine that counts have been normalized just **by library size, but not for composition bias**. Which is translated to the fact that TMM normalization factors have been not computed. Counts would be displayed asymmetrically over or under the horizontal line (one side bigger than the another).
+
+Because our `DGEList` object contains the normalisation factors (if computed with TMM), if we redo these plots using `y` object, we should see the composition bias problem has been solved. See in the following example as data is similarly distributed across the horizontal line:  
+
+```{r check_MD_patients_log}
+# Look column index for patients of interest
+grep("47780", colnames(counts.ok))
+grep("46556", colnames(counts.ok))
+
+par(mfrow=c(1,2))
+plotMD(y,column = 18)
+abline(h=0,col="grey")
+plotMD(y,column = 49)
+abline(h=0,col="grey")
+```
+
+In this case, if we use `log-transformed` counts, scale would be smaller and data will be seen more compacted:  
+
+```{r check_MD_patients_log}
+# Look column index for patients of interest
+grep("47780", colnames(counts.log))
+grep("46556", colnames(counts.log))
+
+par(mfrow=c(1,2))
+plotMD(counts.log,column = 18)
+abline(h=0,col="grey")
+plotMD(counts.log,column = 49)
+abline(h=0,col="grey")
+```
+
+### Multidimensional analysis Hierarchical Clustering  
+
+```{r HCL}
+# You can use those function either to watch or get info of the palette
+#display.brewer.all()
+#brewer.pal.info
+
+# Select a palette
+mypalette <- brewer.pal(11,"PiYG")
+# Extend colors
+morecols <- colorRampPalette(mypalette)
+
+# Select more variable genes (previously computed for PCA analysis)
+highly_variable_lcpm <- counts.ok.blood[selectedGenes,]
+```
+
+```{r plot_heatmap}
+pdf("heatmap_blood.pdf")
+
+# Plot heatmap
+aheatmap(highly_variable_lcpm,col=rev(morecols(50)),main="Top 500 most variable genes across blood samples",annCol=phenoDataFrame_blood[,c("GROUP_bin", "SEX")],labCol=phenoDataFrame_blood[,"GROUP_bin"], scale="row")
+
+dev.off()
+```
+
+### PCA for radiomic features of 125 patients  
+
+Compute pca for radiomic features object with 125 patients:  
+
+```{r pca_all_transcriptomics_rf}
+# Prepare data
+rdr_pca_filt <- rdr_assay
+
+# Change labels to visualize better
+rownames(rdr_pca_filt) <- substr(rownames(rdr_pca_filt), start = 1, stop =  nchar(rownames(rdr_pca_filt))-9)
+
+# Store 15 first dimensions
+res.pca <- PCA(t(rdr_pca_filt), ncp = 22, graph = FALSE)
+```
+
+Top **variables representation (cos2)**:     
+
+```{r var}
+#pdf("Representation of radiomic features in PCs (top 5).pdf")
+
+# Graph of variables: default plot
+fviz_pca_var(res.pca, col.var="cos2",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             geom = c("arrow", "text"),
+             #select.var = list(cos2 = 5),
+             title = "Representation of radiomic features in PC1 and PC2",
+             repel = TRUE) # Avoid text overlapping
+
+#dev.off()
+```
+
+See which features are **contributing** the most per dimension:  
+
+```{r contrib_var}
+#pdf("Contribution variables in PCs with DE genes PC10,13... (ComBat).pdf")
+
+# Contributions of variables to PC1
+ggpar(fviz_contrib(res.pca, choice = "var", axes = 16, top = 10, ggtheme = theme_classic()), x.text.angle=90)
+# Contributions of variables to PC2
+ggpar(fviz_contrib(res.pca, choice = "var", axes = 9, top = 10, ggtheme = theme_classic()), x.text.angle=90)
+# Contributions of variables to PC3
+ggpar(fviz_contrib(res.pca, choice = "var", axes = 13, top = 10, ggtheme = theme_classic()),x.text.angle=90)
+
+#dev.off()
+```
+
+See explained variability:  
+
+```{r explained_var}
+#pdf("Explained variability by dimension (radiomic features).pdf")
+
+fviz_screeplot(res.pca, ncp = 10, main = "Explained varibility of PCs with radiomic features")
+
+#dev.off()
+```
+
+Check for **cumulative % of variance** for each dimension:  
+
+```{r cumulative_pca}
+summary(res.pca)
+```
+
+See **individuals** that are contributing the most to the analysis:  
+
+```{r individuals_graph}
+#pdf("Contribution individuals PCA (ComBat).pdf")
+
+# Graph of individuals
+# 1. Use repel = TRUE to avoid overplotting
+# 2. Use gradient color
+ggpar(fviz_pca_ind(res.pca, col.ind = "contrib",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE # Avoid text overlapping (slow if many points)
+             ), title = "Individuals colored by contribution (%) in PC1 and PC2")
+
+#dev.off()
+```
+
+```{r PCA_ind_group}
+#pdf("Contribution individuals PCA by group (ComBat).pdf")
+
+ggpar(fviz_pca_ind(res.pca,
+label = "none", # hide individual labels
+habillage = phenoDataFrame$GROUP_bin, # color by groups palette = c("#00AFBB", "#E7B800"),
+addEllipses = TRUE # Concentration ellipses
+), title = "Individuals colored by group in PC1 and PC2")
+
+#dev.off()
+```
+
+
+### Automatic selection of variables  
+
+Prepare a data frame with possible covariates and PCs:  
+
+```{r selection_variables}
+# Store values for for individuals from PCA analysis of radiomic features
+pca_ind <- get_pca_ind(res.pca)
+pca_values <- pca_ind$coord
+
+# Create a data frame with clinical variables to asses and PCs smaller than the original (select variables)
+variables_interest <- data.frame(Sex = as.factor(phenoDataFrame_blood$SEX), 
+                                 Age = phenoDataFrame_blood$AGE,
+                                 Country = as.factor(rdr_colData$COUNTRY),
+                                 Dwalk = phenoDataFrame_blood$DWALK,
+                                 BMI = phenoDataFrame_blood$BMI,
+                                 Smoke_history = phenoDataFrame_blood$SUSMHS,
+                                 Years_smoke = phenoDataFrame_blood$SUSMYR,
+                                 pack_years_smoke = phenoDataFrame_blood$SUPKYR,
+                                 Cough = as.factor(phenoDataFrame_blood$COUGH),
+                                 ex_first_year = phenoDataFrame_blood$Y1EXBS,
+                                 Group = as.factor(phenoDataFrame_blood$GROUP_bin),
+                                 N_cigarrete_day = phenoDataFrame_blood$SUCGSMDY,
+                                 Cr_bronchitis = as.factor(phenoDataFrame_blood$CBRONCH),
+                                 Cr_wheezeng = as.factor(phenoDataFrame_blood$ATS3EG),
+                                 history_asthma = as.factor(phenoDataFrame_blood$ATS5G),
+                                 fume_expose = as.factor(phenoDataFrame_blood$ATS6C),
+                                 dusty_expose = as.factor(phenoDataFrame_blood$ATS6B),
+                                 phlegm = as.factor(phenoDataFrame_blood$PHLEGM),
+                                 heart_failure = as.factor(phenoDataFrame_blood$ATS8F),
+                                 stroke = as.factor(phenoDataFrame_blood$ATS8E),
+                                 diabetes = as.factor(phenoDataFrame_blood$ATS8L),
+                                 osteoporosis = as.factor(phenoDataFrame_blood$ATS8H),
+                                 FEVVCPD = phenoDataFrame_blood$FEVVCPD,
+                                 FEV1PSPC = phenoDataFrame_blood$FEV1PSPC,
+                                 TLC = phenoDataFrame_blood$TLC,
+                                 FRC = phenoDataFrame_blood$FRC,
+                                 Low_percentile = phenoDataFrame_blood$LOW15PCT,
+                                 PC1_rdr = pca_values[,1],
+                                 PC2_rdr = pca_values[,2],
+                                 PC3_rdr = pca_values[,3],
+                                 PC4_rdr = pca_values[,4],
+                                 PC5_rdr = pca_values[,5],
+                                 PC6_rdr = pca_values[,6],
+                                 PC7_rdr = pca_values[,7],
+                                 PC8_rdr = pca_values[,8],
+                                 PC9_rdr = pca_values[,9],
+                                 PC10_rdr = pca_values[,10],
+                                 PC11_rdr = pca_values[,11],
+                                 PC12_rdr = pca_values[,12],
+                                 PC13_rdr = pca_values[,13],
+                                 PC14_rdr = pca_values[,14],
+                                 PC15_rdr = pca_values[,15],
+                                 PC16_rdr = pca_values[,16],
+                                 PC17_rdr = pca_values[,17],
+                                 #PC18_rdr = pca_values[,18],
+                                 #PC19_rdr = pca_values[,19],
+                                 #PC20_rdr = pca_values[,20],
+                                 #PC21_rdr = pca_values[,21],
+                                 #PC22_rdr = pca_values[,22],
+                                 row.names = rownames(phenoDataFrame_blood))
+
+# Code for removing columns with some NA
+variables_interest <- variables_interest[ , apply(variables_interest, 2, function(x) !any(is.na(x)))]
+
+# Check for variables with only 1 factor to remove them from the analysis
+variables.1.factor <- sapply(lapply(variables_interest, unique), length)
+names(variables.1.factor[variables.1.factor == 1])
+#display unique values for each variable
+lapply(variables_interest[c("Smoke_history", 'Cough')], unique)
+# Remove variables with just one factor
+variables_interest[,"Smoke_history"] <- NULL
+
+# Select counts higher than 10
+countData <- counts.ok[rowSums(counts.ok) > 10, ]
+```
+
+
+```{r stepwise_counts_automatic}
+# Perform automatic stepwise regression: forward
+mod.fow <- stats::step(lm(t(countData) ~ ., data = variables_interest), trace = FALSE, direction = "forward")
+# Perform automatic stepwise regression: backward
+#mod.fow <- stats::step(lm(t(countData) ~ ., data = variables_interest), trace = FALSE, direction = "backward")
+
+# Store coefficients of the model in a long list (each gene is a model since we're looking counts)
+models.results <- summary(mod.fow)
+
+# Check genes with the highest R squared (better adjust)
+models.r.sq <- sapply(models.results, function(x) {x$r.squared > 0.4})
+# Check and store genes with the highest R-squared values
+table(models.r.sq)
+genes.mfit.high <- models.results[models.r.sq]
+
+# Retrieve significant p.values (< 0.05) for each variable from summary of lm to most adjusted genes
+models.p.values <- sapply(genes.mfit.high, function(x) {x$coefficients[,4] < 0.05})
+
+# Check how many variables have at least one significant p.value 
+variables.sig <- apply(models.p.values, 1, function(x) {any(x == TRUE)})
+table(variables.sig)
+
+#not.sig.variables <- rownames(models.p.values[!variables.sig,])
+not.sig.variables2 <- rownames(models.p.values[!variables.sig,])
+```
+
+
+```{r group_variable}
+plot(regsubsets(Group ~ ., data = variables_interest, method = "exhaustive", nbest = 1))
+```
+
+Functions for assessing linear models:  
+
+```{r asses_model_functions}
+# RSS se ajusta mejor si es más bajo
+rss <- function(fitted, actual){ 
+  sum((fitted - actual)^2)
+}
+
+# RMSE se ajusta mejor si es más bajo
+rmse <- function(fitted, actual){ 
+  sqrt(mean((fitted - actual)^2))
+}
+```
+
+Let's start exploring manually variables:  
+
+```{r manual_var_select}
+mod.s <- lm(t(countData) ~ Sex, data = variables_interest)
+mod.sa <- lm(t(countData) ~ Sex + Age, data = variables_interest)
+mod.a <- lm(t(countData) ~ Age, data = variables_interest)
+mod.g <- lm(t(countData) ~ Group, data = variables_interest)
+mod.sag <- lm(t(countData) ~ Group + Sex + Age, data = variables_interest)
+mod.dwalk <- lm(t(countData) ~ Dwalk, data = variables_interest)
+mod.dsag <- lm(t(countData) ~ Group + Sex + Age + Dwalk, data = variables_interest)
+mod.dag <- lm(t(countData) ~ Group + Age + Dwalk, data = variables_interest)
+mod.dsagf <- lm(t(countData) ~ Group + Sex + Age + Dwalk + FEV1PSPC, data = variables_interest)
+mod.dsagffd <- lm(t(countData) ~ Group + Sex + Age + Dwalk + FEV1PSPC + fume_expose + dusty_expose, data = variables_interest)
+mod.dsagffda <- lm(t(countData) ~ Group + Sex + Age + Dwalk + FEV1PSPC + fume_expose + dusty_expose + history_asthma, data = variables_interest)
+mod.pc1n2 <-  lm(t(countData) ~ PC1_rdr + PC2_rdr, data = variables_interest)
+mod.dsagffdapc1n2 <- lm(t(countData) ~ Group + Sex + Age + Dwalk + FEV1PSPC + fume_expose + dusty_expose + history_asthma + PC1_rdr + PC2_rdr, data = variables_interest)
+
+
+rmse(fitted(mod.s), t(countData))
+rmse(fitted(mod.sa), t(countData))
+rmse(fitted(mod.a), t(countData))
+rmse(fitted(mod.g), t(countData))
+rmse(fitted(mod.sag), t(countData))
+rmse(fitted(mod.dwalk), t(countData))
+rmse(fitted(mod.dsag), t(countData))
+rmse(fitted(mod.dag), t(countData))
+rmse(fitted(mod.dsagf), t(countData))
+rmse(fitted(mod.dsagffd), t(countData))
+rmse(fitted(mod.dsagffda), t(countData))
+rmse(fitted(mod.pc1n2), t(countData))
+# Best model
+rmse(fitted(mod.dsagffdapc1n2), t(countData))
+```
+
+### Explore relationship of counts and some variables  
+
+```{r relationships}
+plot(rdr_colData$PC1,counts.ok["240160_x_at",])
+plot(phenoDataFrame$AGE,counts.ok["240160_x_at",])
+```
+
+```{r relationships_2}
+plot(rdr_colData$PC1,counts.ok["220610_s_at",])
+plot(phenoDataFrame$AGE,counts.ok["220610_s_at",])
+```
+
+### Surrogate variable analysis  
+In this case, variables that want to be tested lately have to be protected from `sva` analysis in order to preserve the variability related with this known covariates. The null-model `mod0` can have all the desired variables of the model, but the one to **contrast** lately: 
+
+```{r sva_avalysis}
+# Create a model with tumor stage as covariate and a null model
+mod1 <- model.matrix( ~ Sex + Age + BMI + Years_smoke + PC1_rdr + PC2_rdr + PC3_rdr + PC4_rdr + PC5_rdr + PC6_rdr + PC7_rdr + PC8_rdr + PC9_rdr + PC10_rdr + PC11_rdr + PC12_rdr + PC13_rdr + PC14_rdr + PC15_rdr + PC16_rdr + PC17_rdr, data=variables_interest)
+mod0 <- model.matrix( ~ Sex + Age + BMI + Years_smoke, data=variables_interest)
+
+# This estimates the required number of surrogate variables
+#countData <- counts.ok[rowSums(counts.ok) > 10, ]
+res <- svaseq(countData, mod1, mod0)
+
+# Number of estimated surrogate variables 
+res$n.sv
+
+# Check surrogated variables 
+head(res$sv)
+
+# Add SVs to column data information
+variables_interest_sva <- DataFrame(variables_interest, res$sv)
+```
+
+### Differential expression analysis  
+
+First we need to create a **design matrix** for the groups (see the excellent limma user guide for more information on design matrices). There are many different ways to set up your design matrix, and **it is dictated by what comparisons you would like to test**.  
+
+*Voom* will automatically adjust the library sizes using the `norm.factors` if calculated. We can add `plot=TRUE` to generate a plot of the **mean-variance trend**. This plot can also tell us if there are any genes that look really variable in our data, and if we’ve filtered the low counts adequately.  
+
+```{r voom_normalize}
+# Normalize data with voom and add tumor stage as covariate in design 
+design <- model.matrix( ~  Sex + Age + BMI + Years_smoke + PC1_rdr + PC2_rdr + PC3_rdr + PC4_rdr + PC5_rdr + PC6_rdr + PC7_rdr + PC8_rdr + PC9_rdr + PC10_rdr + PC11_rdr + PC12_rdr + PC13_rdr + PC14_rdr + PC15_rdr + PC16_rdr + PC17_rdr + V1 + V2 + V3 + V4 + V5 + V6 + V7 + V8 + V9 + V10 + V11 + V12 + V13, data=variables_interest_sva)
+v <- voom(counts.ok, design=design, plot=TRUE)
+```
+
+We can repeat the box plots for the normalised data to compare to before normalisation. The expression values in `v$E` are already **log2 values** so we don’t need to log-transform.  
+
+```{r voom_log_boxplot}
+par(mfrow=c(1,2))
+boxplot(counts.ok, xlab="", ylab="RPKM counts per million",las=2,main="RPKM")
+## Let's add a blue horizontal line that corresponds to the median logCPM
+abline(h=median(counts.ok),col="blue")
+
+boxplot(v$E, xlab="", ylab="Log2 counts per million",las=2,main="Voom transformed logRPKM")
+## Let's add a blue horizontal line that corresponds to the median logCPM
+abline(h=median(v$E),col="blue")
+```
+
+`lmFit` estimates group means according to the design matrix, as well as gene-wise variances.  
+
+```{r voom_lm}
+fit <- lmFit(v, design)
+fit <- eBayes(fit)
+toptable <- topTable(fit, coef=ncol(design))
+toptable
+```
+
+```{r fit_sumary}
+summa.fit <- decideTests(fit)
+summary(summa.fit)
+```
+
+```{r pvalue_dist_Voom}
+# Get p-values computed by limma
+p.val.voom <- as.data.frame(fit$p.value)
+
+# P-value distribution of results computed by limma
+ggplot(data = p.val.voom, aes(x = PC3_rdr)) +
+geom_histogram(bins = 100)
+
+# P-value distribution of results computed by limma
+ggplot(data = p.val.voom, aes(x = PC10_rdr)) +
+geom_histogram(bins = 100)
+
+# P-value distribution of results computed by limma
+ggplot(data = p.val.voom, aes(x = PC13_rdr)) +
+geom_histogram(bins = 100)
+
+# P-value distribution of results computed by limma
+ggplot(data = p.val.voom, aes(x = PC16_rdr)) +
+geom_histogram(bins = 100)
+```
+
+```{r pvalue_QQplot_Voom}
+# QQplot plot for p-values computed by limma
+GWASTools::qqPlot(p.val.voom$PC3_rdr)
+
+# QQplot plot for p-values computed by limma
+GWASTools::qqPlot(p.val.voom$PC10_rdr)
+
+# QQplot plot for p-values computed by limma
+GWASTools::qqPlot(p.val.voom$PC13_rdr)
+
+# QQplot plot for p-values computed by limma
+GWASTools::qqPlot(p.val.voom$PC16_rdr)
+```
+
+### Studying differential expression of one effect  
+
+#### Group  
+Since we are interested in differences between groups, we need to specify which comparisons we want to test. The comparison of interest can be specified using the `makeContrasts` function. 
+
+```{r contrast_g}
+#cont.matrix <- makeContrasts(G.ModVSev=GroupSevere, levels = design)
+#fit2 <- contrasts.fit(fit, cont.matrix)
+
+# You can check the index of your coefficient 
+grep("GroupSevere", colnames(fit$coefficients))
+
+groupSevere <- topTable(fit, number = 20000, coef=2)
+groupSevere <- groupSevere[order(groupSevere$P.Value),]
+```
+
+```{r volcano_g, fig.align='center', fig.height=8}
+EnhancedVolcano(groupSevere, lab = rownames(groupSevere), 
+                x = 'logFC',
+                y = 'P.Value', ylim=c(0,50),
+                pCutoff = 10e-5,
+                FCcutoff = 0.5,
+                pointSize = 3.0,
+                labSize = 6.0)
+```
+
+#### PC3_rdr  
+```{r contrast_rf_pc3}
+groupPC3 <- topTable(fit, number = dim(counts.ok)[1], coef="PC3_rdr")
+groupPC3 <- groupPC3[order(groupPC3$P.Value),]
+head(groupPC3)
+```
+
+```{r volcano_rf_pc3, fig.align='center', fig.height=8}
+labels.PC3 <- ifelse(annotation.blood.ok[rownames(groupPC3),"SYMBOL"] != "", annotation.blood.ok[rownames(groupPC3),"SYMBOL"], rownames(groupPC3))
+
+volcano3 <- EnhancedVolcano(groupPC3, lab = labels.PC3, 
+                x = 'logFC',
+                y = 'P.Value', ylim=c(0,20),
+                pCutoff = 10e-5,
+                FCcutoff = 0.05,
+                pointSize = 3.0,
+                labSize = 4.0,
+                title = "Genes from blood DE in PC3 with relaxed p-value (10e-5)",
+                titleLabSize = 20)
+```
+
+#### PC10_rdr  
+```{r contrast_rf_pc10}
+groupPC10 <- topTable(fit, number = dim(counts.ok)[1], coef="PC10_rdr")
+groupPC10 <- groupPC10[order(groupPC10$P.Value),]
+head(groupPC10)
+```
+
+```{r volcano_rf_pc10, fig.align='center', fig.height=8}
+labels.PC10 <- ifelse(annotation.blood.ok[rownames(groupPC10),"SYMBOL"] != "", annotation.blood.ok[rownames(groupPC10),"SYMBOL"], rownames(groupPC10))
+
+volcano10 <- EnhancedVolcano(groupPC10, lab = labels.PC10, 
+                x = 'logFC',
+                y = 'P.Value', ylim=c(0,20),
+                pCutoff = 10e-5,
+                FCcutoff = 0.05,
+                pointSize = 3.0,
+                labSize = 4.0,
+                title = "Genes from blood DE in PC10 with relaxed p-value (10e-5)",
+                titleLabSize = 20)
+```
+
+#### PC13_rdr  
+```{r contrast_rf_pc13}
+groupPC13 <- topTable(fit, number = dim(counts.ok)[1], coef="PC13_rdr")
+groupPC13 <- groupPC13[order(groupPC13$P.Value),]
+head(groupPC13)
+```
+
+```{r volcano_rf_pc13, fig.align='center', fig.height=8}
+labels.PC13 <- ifelse(annotation.blood.ok[rownames(groupPC13),"SYMBOL"] != "", annotation.blood.ok[rownames(groupPC13),"SYMBOL"], rownames(groupPC13))
+
+volcano13 <- EnhancedVolcano(groupPC13, lab = labels.PC13, 
+                x = 'logFC',
+                y = 'P.Value', ylim=c(0,20),
+                pCutoff = 10e-5,
+                FCcutoff = 0.05,
+                pointSize = 3.0,
+                labSize = 4.0,
+                title = "Genes from blood DE in PC13 with relaxed p-value (10e-5)",
+                titleLabSize = 20)
+```
+
+#### PC16_rdr  
+```{r contrast_rf_pc16}
+groupPC16 <- topTable(fit, number = dim(counts.ok)[1], coef="PC16_rdr")
+groupPC16 <- groupPC16[order(groupPC16$P.Value),]
+head(groupPC16)
+```
+
+```{r volcano_rf_pc16, fig.align='center', fig.height=8}
+labels.PC16 <- ifelse(annotation.blood.ok[rownames(groupPC16),"SYMBOL"] != "", annotation.blood.ok[rownames(groupPC16),"SYMBOL"], rownames(groupPC16))
+
+volcano16 <- EnhancedVolcano(groupPC16, lab = labels.PC16, 
+                x = 'logFC',
+                y = 'P.Value', ylim=c(0,20),
+                pCutoff = 10e-5,
+                FCcutoff = 0.05,
+                pointSize = 3.0,
+                labSize = 4.0,
+                title = "Genes from blood DE in PC16 with relaxed p-value (10e-5)",
+                titleLabSize = 20)
+```
+
+Plot all volcanos:  
+
+```{r all_volcano}
+volcanoAll <- plot_grid(volcano3, volcano10, volcano13, volcano16, labels=c("A", "B", "C", "D"), ncol = 2, label_size = 20)
+
+ggsave("Volcano plots blood annotated genes.pdf", volcanoAll, width=10, height=9, units="cm", scale=6)
+```
+
+## Enrichment  
+
+### PC10  
+
+```{r differentially_expressed_pc10}
+# Store genes with p.adjusted lesser than 0.01 (highly significant)
+mask <- groupPC10$adj.P.Val < 0.05 & !is.na(groupPC10$adj.P.Val)
+deGenes.pc10 <- rownames(groupPC10[mask, ]) 
+
+# Check differentially expressed genes
+head(deGenes.pc10)
+length(deGenes.pc10)
+```
+
+Do we have information about these genes?
+
+```{r anno_check_pc10}
+annotation.blood.ok[deGenes.pc10,]
+```
+
+### PC3  
+
+```{r differentially_expressed_pc3}
+# Store genes with p.adjusted lesser than 0.01 (highly significant)
+mask <- groupPC3$adj.P.Val < 0.05 & !is.na(groupPC3$adj.P.Val)
+deGenes.pc3 <- rownames(groupPC3[mask, ]) 
+
+# Check differentially expressed genes
+head(deGenes.pc3)
+length(deGenes.pc3)
+```
+
+Do we have information about these genes?
+
+```{r anno_check_pc3}
+annotation.blood.ok[deGenes.pc3,]
+```
+
+Retrieve `Entrez ID` from the annotations of genes:  
+
+```{r entrez_annotation_pc3}
+# Retrieve ENTREZ names 
+deGenes.entrez.pc3 <- unlist(mget(deGenes.pc3, envir=hgu133plus2ENTREZID, ifnotfound = NA))
+#geneUniverse.entrez <- unlist(mget(geneUniverse, envir=hgu133plus2ENTREZID, ifnotfound = NA))
+```
+
+**GO** enrichment analysis:  
+
+```{r GO_enrichment_pc3}
+ans.go.pc3 <- enrichGO(gene = deGenes.entrez.pc3, ont = "MF",
+                   #universe = geneUniverse.entrez,
+                   OrgDb ="org.Hs.eg.db", 
+                   readable=TRUE,
+                   pvalueCutoff = 1,
+                   qvalueCutoff = 1)
+
+# See results
+tab.go.pc3 <- as.data.frame(ans.go.pc3@result) 
+#tab.go<- subset(tab.go, Count>5) 
+tab.go.pc3[1:5, 1:6]
+```
+
+**KEGG** enrichment analysis:  
+
+```{r kegg_pc3, eval=FALSE}
+ans.kegg.pc3 <- enrichKEGG(gene = deGenes.entrez.pc3,
+                       organism = 'hsa',
+                       pvalueCutoff = 1,
+                       qvalueCutoff = 1) 
+
+# See results
+tab.kegg.pc3 <- as.data.frame(ans.kegg.pc3@result)
+#tab.kegg<- subset(tab.kegg, Count>5) 
+tab.kegg.pc3[1:5, 1:6]
+```
+
+**DisGeNet** analysis. Get API:    
+
+```{r disgenet_get_API}
+library(disgenet2r)
+
+# Get API
+disgenet_api_key <- get_disgenet_api_key(email = "carlacasanovasuarez@gmail.com", password = "mypassword1234", verbose = TRUE)
+
+Sys.setenv(DISGENET_API_KEY= disgenet_api_key)
+```
+
+Then perform disease enrichment for genes DE:   
+
+```{r disgenet_enrichment_pc3, eval=FALSE}
+res_enrich_pc3 <-disease_enrichment(entities = deGenes.entrez.pc3, vocabulary = "ENTREZ", database = "CURATED")
+
+res.table.disgenet.pc3 <- res_enrich_pc3@qresult
+head(res.table.disgenet.pc3)
+```
+
+
+**MSigDb** enrichment analysis (group C7 inmunologic signature):  
+
+```{r msigdb_pc3}
+# Load terms for genes coded by ENTREZ of the gene set C7
+c3.tf <- read.gmt("/Users/carlacasanovasuarez/Downloads/c7.all.v7.5.1.entrez.gmt.txt")
+
+# Enrichment
+ans.tf.pc3 <- enricher(deGenes.entrez.pc3, TERM2GENE=c3.tf) 
+tab.tf.pc3 <- as.data.frame(ans.tf.pc3@result)
+#tab.tf<- subset(tab.tf, Count>5) 
+tab.tf.pc3[1:5,1:5]
+```
+
+### PC13  
+
+Store gene names of the data set with genes DE:  
+
+```{r differentially_expressed_pc13}
+# Store genes with p.adjusted lesser than 0.01 (highly significant)
+mask <- groupPC13$adj.P.Val < 0.05 & !is.na(groupPC13$adj.P.Val)
+deGenes.pc13 <- rownames(groupPC13[mask, ]) 
+
+# Check differentially expressed genes
+head(deGenes.pc13)
+length(deGenes.pc13)
+```
+
+Do we have information about these genes?
+
+```{r anno_check_pc13}
+annotation.blood.ok[deGenes.pc13,]
+```
+
+Retrieve `Entrez ID` from the annotations of genes:  
+
+```{r entrez_annotation_pc13}
+# Retrieve ENTREZ names 
+deGenes.entrez.pc13 <- unlist(mget(deGenes.pc13, envir=hgu133plus2ENTREZID, ifnotfound = NA))
+#geneUniverse.entrez <- unlist(mget(geneUniverse, envir=hgu133plus2ENTREZID, ifnotfound = NA))
+```
+
+**GO** enrichment analysis:  
+
+```{r GO_enrichment_pc13}
+ans.go.pc13 <- enrichGO(gene = deGenes.entrez.pc13, ont = "BP",
+                   #universe = geneUniverse.entrez,
+                   OrgDb ="org.Hs.eg.db", 
+                   readable=TRUE,
+                   pvalueCutoff = 1,
+                   qvalueCutoff = 1)
+
+# See results
+tab.go.pc13 <- as.data.frame(ans.go.pc13@result) 
+#tab.go<- subset(tab.go, Count>5) 
+tab.go.pc13[1:5, 1:6]
+```
+
+**KEGG** enrichment analysis:  
+
+```{r kegg_pc13}
+ans.kegg.pc13 <- enrichKEGG(gene = deGenes.entrez.pc13,
+                       organism = 'hsa',
+                       pvalueCutoff = 1,
+                       qvalueCutoff = 1) 
+
+# See results
+tab.kegg.pc13 <- as.data.frame(ans.kegg.pc13@result)
+#tab.kegg<- subset(tab.kegg, Count>5) 
+tab.kegg.pc13[1:5, 1:6]
+```
+
+Then perform disease enrichment for genes DE:   
+
+```{r disgenet_enrichment_pc13}
+res_enrich_pc13 <-disease_enrichment(entities = deGenes.entrez.pc13, vocabulary = "ENTREZ", database = "CURATED")
+
+res.table.disgenet.pc13 <- res_enrich_pc13@qresult
+head(res.table.disgenet.pc13)
+```
+
+
+**MSigDb** enrichment analysis (group C7 inmunologic signature):  
+
+```{r msigdb_pc13}
+# Load terms for genes coded by ENTREZ of the gene set C7
+c3.tf <- read.gmt("/Users/carlacasanovasuarez/Downloads/c7.all.v7.5.1.entrez.gmt.txt")
+
+# Enrichment
+ans.tf.pc13 <- enricher(deGenes.entrez.pc13, TERM2GENE=c3.tf) 
+tab.tf.pc13 <- as.data.frame(ans.tf.pc13@result)
+#tab.tf<- subset(tab.tf, Count>5) 
+tab.tf.pc13[1:5,1:5]
+```
+
+### PC16  
+
+```{r differentially_expressed_pc16}
+# Store genes with p.adjusted lesser than 0.01 (highly significant)
+mask <- groupPC16$adj.P.Val < 0.05 & !is.na(groupPC16$adj.P.Val)
+deGenes.pc16 <- rownames(groupPC16[mask, ]) 
+
+# Check differentially expressed genes
+head(deGenes.pc16)
+length(deGenes.pc16)
+
+# Check info 
+annotation.blood.ok[deGenes.pc16,]
+```
+
+Retrieve `Entrez ID` from the annotations of genes:  
+
+```{r entrez_annotation_pc16}
+# Retrieve ENTREZ names 
+deGenes.entrez.pc16 <- unlist(mget(deGenes.pc16, envir=hgu133plus2ENTREZID, ifnotfound = NA))
+#geneUniverse.entrez <- unlist(mget(geneUniverse, envir=hgu133plus2ENTREZID, ifnotfound = NA))
+```
+
+**GO** enrichment analysis:  
+
+```{r GO_enrichment_pc16}
+ans.go.pc16 <- enrichGO(gene = deGenes.entrez.pc16, ont = "BP",
+                   #universe = geneUniverse.entrez,
+                   OrgDb ="org.Hs.eg.db", 
+                   readable=TRUE,
+                   pvalueCutoff = 1,
+                   qvalueCutoff = 1)
+
+# See results
+tab.go.pc16 <- as.data.frame(ans.go.pc16@result) 
+#tab.go<- subset(tab.go, Count>5) 
+tab.go.pc16[1:5, 1:6]
+```
+
+**KEGG** enrichment analysis:  
+
+```{r kegg_pc16}
+ans.kegg.pc16 <- enrichKEGG(gene = deGenes.entrez.pc16,
+                       organism = 'hsa',
+                       pvalueCutoff = 1,
+                       qvalueCutoff = 1) 
+
+# See results
+tab.kegg.pc16 <- as.data.frame(ans.kegg.pc16@result)
+#tab.kegg<- subset(tab.kegg, Count>5) 
+tab.kegg.pc16[1:5, 1:6]
+```
+
+Then perform disease enrichment for genes DE:   
+
+```{r disgenet_enrichment_pc16, eval=FALSE}
+res_enrich_pc16 <- disease_enrichment(entities = deGenes.entrez.pc16, vocabulary = "ENTREZ", database = "CURATED")
+
+res.table.disgenet.pc16 <- res_enrich_pc16@qresult
+head(res.table.disgenet.pc16)
+```
+
+
+**MSigDb** enrichment analysis (group C7 inmunologic signature):  
+
+```{r msigdb}
+# Load terms for genes coded by ENTREZ of the gene set C7
+c3.tf <- read.gmt("/Users/carlacasanovasuarez/Downloads/c7.all.v7.5.1.entrez.gmt.txt")
+
+# Enrichment
+ans.tf.pc16 <- enricher(deGenes.entrez.pc16, TERM2GENE=c3.tf) 
+tab.tf.pc16 <- as.data.frame(ans.tf.pc16@result)
+#tab.tf<- subset(tab.tf, Count>5) 
+tab.tf.pc16[1:5,1:5]
+```
+
+
+## Summary  
+
+Plots PC13:  
+
+```{r pc13_plots}
+# GO
+pc13GO <- dotplot(ans.go.pc13, showCategory=10) + ggtitle("GO of DE genes from blood associated with PC13") 
+
+# KEGG
+x1 <- pairwise_termsim(ans.kegg.pc13)
+pc13KEEG <- emapplot(x1, showCategory = 10) + ggtitle("KEEG of DE genes from blood associated with PC13") 
+
+# Disgenet plot() function only displays diseases from ratios > 0.4. 
+pc13Dis <- plot(res_enrich_pc13, class = "Enrichment",  cutoff= 1) + ggtitle("DisGeNET of DE genes from blood associated with PC13") 
+
+pAllpc13 <- plot_grid(pc13GO, pc13Dis, pc13KEEG, labels = c("A", "B", "C"))
+
+ggsave("Enrichment PC13 association with blood samples.pdf",pAllpc13, width=7, height=7, units="cm", scale=5)
+```
+
+Plots PC16:  
+
+```{r pc16_plots}
+# GO
+pc16GO <- dotplot(ans.go.pc16, showCategory=10) + ggtitle("GO of DE genes from blood associated with PC16") 
+
+# KEGG
+x2 <- pairwise_termsim(ans.kegg.pc16)
+pc16KEEG <- emapplot(x2, showCategory = 10) + ggtitle("KEEG of DE genes from blood associated with PC16") 
+
+# Disgenet plot() function only displays diseases from ratios > 0.4. 
+#pc13Dis <- plot(res_enrich_pc13, class = "Enrichment",  cutoff= 1) + ggtitle("DisGeNET PC13 blood") 
+
+pAllpc13 <- plot_grid(pc16GO, pc16KEEG, labels = c("A", "B"))
+
+ggsave("Enrichment DE genes from blood samples associated to PC16.pdf",pAllpc13, width=7, height=7, units="cm", scale=5)
+```
+

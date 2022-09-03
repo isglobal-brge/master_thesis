@@ -32,15 +32,18 @@ library(annotate)
 library(hgu133plus2.db)
 library(clusterProfiler)
 library(enrichplot)
+library(httr)
+library(cowplot)
 ```
 
 
 This analysis will be performed with counts from **sputum samples**:  
 
 ```{r load_data}
-load("/Users/carlacasanovasuarez/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/R objects/rdr_assay_scaled.rda")
-load("/Users/carlacasanovasuarez/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/R objects/sputum_eset_countsOK.rda")
+load("/Users/carlacasanovasuarez/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/R objects/rdr_assay_scaled_combat.rda")
+load("/Users/carlacasanovasuarez/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/R objects/sputum_eset_countsOK_Combat.rda")
 load("/Users/carlacasanovasuarez/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/R objects/sputum_eset_phenoOK.rda")
+load("/Users/carlacasanovasuarez/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/R objects/sputum_eset_annotationOK.rda")
 ```
 
 
@@ -126,15 +129,17 @@ clusterEvalQ(clust, {
   library(sva)
 })
 
+
 de_radiomic_features_indv <- function(x) {
   
   # Null formula
-  m.model <- "~ Group + Sex + Age + Dwalk + FEV1PSPC + fume_expose + dusty_expose + history_asthma + Cough + BMI + Cr_wheezeng"
+  # Group + Dwalk + FEV1PSPC + fume_expose + dusty_expose + history_asthma + Cough + BMI + Cr_wheezeng
+  m.model <- "~ Sex + Age + BMI + Years_smoke"
   
   # -------SVA------ 
   # Create a model with the feature and a null model
   mod1 <- model.matrix(formula(paste(m.model, x, sep = "+")), data=variables_interest) 
-  mod0 <- model.matrix( ~ Group + Sex + Age + Dwalk + FEV1PSPC + fume_expose + dusty_expose + history_asthma + Cough + BMI + Cr_wheezeng, data=variables_interest)
+  mod0 <- model.matrix(formula(m.model), data=variables_interest)
   
   # This estimates the required number of surrogate variables
   res <- svaseq(countData, mod1, mod0)
@@ -235,8 +240,21 @@ summary(summa.fit.3ddDia)
 ```{r load_results_MeshVol}
 load("/Users/carlacasanovasuarez/Desktop/Radiomic features models (indiv)/MeshVolume.original.rda")
 
+# Store: toptable, p.value, summary
 summa.fit.MeshVol <- decideTests(fit)
+toptable.MeshVol <- topTable(fit, coef="MeshVolume.original", number = dim(counts.ok)[1])
+toptable.MeshVol <- toptable.MeshVol[order(toptable.MeshVol$P.Value),]
+p.val.voom <- as.data.frame(fit$p.value)
+
+# P-value distribution of results computed by limma
+ggplot(data = p.val.voom, aes(x = MeshVolume.original)) +
+geom_histogram(bins = 100)
+
+# QQplot plot for p-values computed by limma
+GWASTools::qqPlot(p.val.voom$MeshVolume.original)
+
 summary(summa.fit.MeshVol)
+head(toptable.MeshVol, 10)
 ```
 
 
@@ -288,8 +306,21 @@ summary(summa.fit.surVol)
 ```{r load_results_voxVol}
 load("/Users/carlacasanovasuarez/Desktop/Radiomic features models (indiv)/VoxelVolume.original.rda")
 
+# Store: toptable, p.value, summary
 summa.fit.voxVol <- decideTests(fit)
+toptable.voxVol <- topTable(fit, coef="VoxelVolume.original", number = dim(counts.ok)[1])
+toptable.voxVol <- toptable.voxVol[order(toptable.voxVol$P.Value),]
+p.val.voom <- as.data.frame(fit$p.value)
+
+# P-value distribution of results computed by limma
+ggplot(data = p.val.voom, aes(x = VoxelVolume.original)) +
+geom_histogram(bins = 100)
+
+# QQplot plot for p-values computed by limma
+GWASTools::qqPlot(p.val.voom$VoxelVolume.original)
+
 summary(summa.fit.voxVol)
+head(toptable.voxVol, 10)
 ```
 
 
@@ -389,21 +420,8 @@ summary(summa.fit.clustTen)
 ```{r load_results_cont}
 load("/Users/carlacasanovasuarez/Desktop/Radiomic features models (indiv)/Contrast.original.rda")
 
-# Store toptable, p.value, summary
 summa.fit.cont <- decideTests(fit)
-toptable.cont <- topTable(fit, coef="Contrast.original", number = dim(counts.ok)[1])
-toptable.cont <- toptable.cont[order(toptable.cont$P.Value),]
-p.val.voom <- as.data.frame(fit$p.value)
-
-# P-value distribution of results computed by limma
-ggplot(data = p.val.voom, aes(x = Contrast.original)) +
-geom_histogram(bins = 100)
-
-# QQplot plot for p-values computed by limma
-GWASTools::qqPlot(p.val.voom$Contrast.original)
-
 summary(summa.fit.cont)
-head(toptable.cont, 10)
 ```
 
 
@@ -418,21 +436,8 @@ summary(summa.fit.corr)
 ```{r load_results_diffAv}
 load("/Users/carlacasanovasuarez/Desktop/Radiomic features models (indiv)/DifferenceAverage.original.rda")
 
-# Store toptable, p.value, summary
 summa.fit.diffAv <- decideTests(fit)
-toptable.diffAv <- topTable(fit, coef="DifferenceAverage.original", number = dim(counts.ok)[1])
-toptable.diffAv <- toptable.diffAv[order(toptable.diffAv$P.Value),]
-p.val.voom <- as.data.frame(fit$p.value)
-
-# P-value distribution of results computed by limma
-ggplot(data = p.val.voom, aes(x = DifferenceAverage.original)) +
-geom_histogram(bins = 100)
-
-# QQplot plot for p-values computed by limma
-GWASTools::qqPlot(p.val.voom$DifferenceAverage.original)
-
 summary(summa.fit.diffAv)
-head(toptable.diffAv, 10)
 ```
 
 
@@ -455,42 +460,16 @@ summary(summa.fit.diffVar)
 ```{r load_results_idO}
 load("/Users/carlacasanovasuarez/Desktop/Radiomic features models (indiv)/Id.original.rda")
 
-# Store toptable, p.value, summary
 summa.fit.idO <- decideTests(fit)
-toptable.idO <- topTable(fit, coef="Id.original", number = dim(counts.ok)[1])
-toptable.idO <- toptable.idO[order(toptable.idO$P.Value),]
-p.val.voom <- as.data.frame(fit$p.value)
-
-# P-value distribution of results computed by limma
-ggplot(data = p.val.voom, aes(x = Id.original)) +
-geom_histogram(bins = 100)
-
-# QQplot plot for p-values computed by limma
-GWASTools::qqPlot(p.val.voom$Id.original)
-
 summary(summa.fit.idO)
-head(toptable.idO, 10)
 ```
 
 
 ```{r load_results_idmO}
 load("/Users/carlacasanovasuarez/Desktop/Radiomic features models (indiv)/Idm.original.rda")
 
-# Store toptable, p.value, summary
 summa.fit.idmO <- decideTests(fit)
-toptable.idmO <- topTable(fit, coef="Idm.original", number = dim(counts.ok)[1])
-toptable.idmO <- toptable.idmO[order(toptable.idmO$P.Value),]
-p.val.voom <- as.data.frame(fit$p.value)
-
-# P-value distribution of results computed by limma
-ggplot(data = p.val.voom, aes(x = Idm.original)) +
-geom_histogram(bins = 100)
-
-# QQplot plot for p-values computed by limma
-GWASTools::qqPlot(p.val.voom$Idm.original)
-
 summary(summa.fit.idmO)
-head(toptable.idmO, 10)
 ```
 
 
@@ -499,19 +478,7 @@ load("/Users/carlacasanovasuarez/Desktop/Radiomic features models (indiv)/Idmn.o
 
 # Store toptable, p.value, summary
 summa.fit.idmnO <- decideTests(fit)
-toptable.idmnO <- topTable(fit, coef="Idmn.original", number = dim(counts.ok)[1])
-toptable.idmnO <- toptable.idmnO[order(toptable.idmnO$P.Value),]
-p.val.voom <- as.data.frame(fit$p.value)
-
-# P-value distribution of results computed by limma
-ggplot(data = p.val.voom, aes(x = Idmn.original)) +
-geom_histogram(bins = 100)
-
-# QQplot plot for p-values computed by limma
-GWASTools::qqPlot(p.val.voom$Idmn.original)
-
 summary(summa.fit.idmnO)
-head(toptable.idmnO, 10)
 ```
 
 
@@ -519,19 +486,7 @@ head(toptable.idmnO, 10)
 load("/Users/carlacasanovasuarez/Desktop/Radiomic features models (indiv)/Idn.original.rda")
 
 summa.fit.idnO <- decideTests(fit)
-toptable.idnO <- topTable(fit, coef="Idn.original", number = dim(counts.ok)[1])
-toptable.idnO <- toptable.idnO[order(toptable.idnO$P.Value),]
-p.val.voom <- as.data.frame(fit$p.value)
-
-# P-value distribution of results computed by limma
-ggplot(data = p.val.voom, aes(x = Idn.original)) +
-geom_histogram(bins = 100)
-
-# QQplot plot for p-values computed by limma
-GWASTools::qqPlot(p.val.voom$Idn.original)
-
 summary(summa.fit.idnO)
-head(toptable.idnO, 10)
 ```
 
 
@@ -539,19 +494,7 @@ head(toptable.idnO, 10)
 load("/Users/carlacasanovasuarez/Desktop/Radiomic features models (indiv)/InverseVariance.original.rda")
 
 summa.fit.invV <- decideTests(fit)
-toptable.invV <- topTable(fit, coef="InverseVariance.original", number = dim(counts.ok)[1])
-toptable.invV <- toptable.invV[order(toptable.invV$P.Value),]
-p.val.voom <- as.data.frame(fit$p.value)
-
-# P-value distribution of results computed by limma
-ggplot(data = p.val.voom, aes(x = InverseVariance.original)) +
-geom_histogram(bins = 100)
-
-# QQplot plot for p-values computed by limma
-GWASTools::qqPlot(p.val.voom$InverseVariance.original)
-
 summary(summa.fit.invV)
-head(toptable.invV, 10)
 ```
 
 
@@ -727,19 +670,7 @@ head(toptable.lrLEm, 10)
 load("/Users/carlacasanovasuarez/Desktop/Radiomic features models (indiv)/LowGrayLevelRunEmphasis.original.rda")
 
 summa.fit.lowGLRem <- decideTests(fit)
-toptable.lowGLRem <- topTable(fit, coef="LowGrayLevelRunEmphasis.original", number = dim(counts.ok)[1])
-toptable.lowGLRem <- toptable.lowGLRem[order(toptable.lowGLRem$P.Value),]
-p.val.voom <- as.data.frame(fit$p.value)
-
-# P-value distribution of results computed by limma
-ggplot(data = p.val.voom, aes(x = LowGrayLevelRunEmphasis.original)) + 
-  geom_histogram(bins = 100)
-
-# QQplot plot for p-values computed by limma
-GWASTools::qqPlot(p.val.voom$LowGrayLevelRunEmphasis.original)
-
 summary(summa.fit.lowGLRem)
-head(toptable.lowGLRem, 10)
 ```
 
 
@@ -771,19 +702,7 @@ summary(summa.fit.rlNUn)
 load("/Users/carlacasanovasuarez/Desktop/Radiomic features models (indiv)/RunPercentage.original.rda")
 
 summa.fit.rPer <- decideTests(fit)
-toptable.rPer <- topTable(fit, coef="RunPercentage.original", number = dim(counts.ok)[1])
-toptable.rPer <- toptable.rPer[order(toptable.rPer$P.Value),]
-p.val.voom <- as.data.frame(fit$p.value)
-
-# P-value distribution of results computed by limma
-ggplot(data = p.val.voom, aes(x = RunPercentage.original)) + 
-  geom_histogram(bins = 100)
-
-# QQplot plot for p-values computed by limma
-GWASTools::qqPlot(p.val.voom$RunPercentage.original)
-
 summary(summa.fit.rPer)
-head(toptable.rPer, 10)
 ```
 
 
@@ -822,14 +741,28 @@ summary(summa.fit.shRL)
 ```{r load_results_hglZEM}
 load("/Users/carlacasanovasuarez/Desktop/Radiomic features models (indiv)/HighGrayLevelZoneEmphasis.original.rda")
 
+# Store toptable, p.value, summary
 summa.fit.hglZEM <- decideTests(fit)
+toptable.hglZEM <- topTable(fit, coef="HighGrayLevelZoneEmphasis.original", number = dim(counts.ok)[1])
+toptable.hglZEM <- toptable.hglZEM[order(toptable.hglZEM$P.Value),]
+p.val.voom <- as.data.frame(fit$p.value)
+
+# P-value distribution of results computed by limma
+ggplot(data = p.val.voom, aes(x = HighGrayLevelZoneEmphasis.original)) +
+geom_histogram(bins = 100)
+
+# QQplot plot for p-values computed by limma
+GWASTools::qqPlot(p.val.voom$HighGrayLevelZoneEmphasis.original)
+
 summary(summa.fit.hglZEM)
+head(toptable.hglZEM, 10)
 ```
 
 
 ```{r load_results_larAEm}
 load("/Users/carlacasanovasuarez/Desktop/Radiomic features models (indiv)/LargeAreaEmphasis.original.rda")
 
+# Store toptable, p.value, summary
 summa.fit.larAEm <- decideTests(fit)
 toptable.larAEm <- topTable(fit, coef="LargeAreaEmphasis.original", number = dim(counts.ok)[1])
 toptable.larAEm <- toptable.larAEm[order(toptable.larAEm$P.Value),]
@@ -850,6 +783,7 @@ head(toptable.larAEm, 10)
 ```{r load_results_lowGLem}
 load("/Users/carlacasanovasuarez/Desktop/Radiomic features models (indiv)/LowGrayLevelEmphasis.original.rda")
 
+# Store toptable, p.value, summary
 summa.fit.lowGLem <- decideTests(fit)
 toptable.lowGLem <- topTable(fit, coef="LowGrayLevelEmphasis.original", number = dim(counts.ok)[1])
 toptable.lowGLem <- toptable.lowGLem[order(toptable.lowGLem$P.Value),]
@@ -870,6 +804,7 @@ head(toptable.lowGLem, 10)
 ```{r load_results_larAHigh}
 load("/Users/carlacasanovasuarez/Desktop/Radiomic features models (indiv)/LargeAreaHighGrayLevelEmphasis.original.rda")
 
+# Store toptable, p.value, summary
 summa.fit.larAHigh <- decideTests(fit)
 toptable.larAHigh <- topTable(fit, coef="LargeAreaHighGrayLevelEmphasis.original", number = dim(counts.ok)[1])
 toptable.larAHigh <- toptable.larAHigh[order(toptable.larAHigh$P.Value),]
@@ -890,6 +825,7 @@ head(toptable.larAHigh, 10)
 ```{r load_results_larALow}
 load("/Users/carlacasanovasuarez/Desktop/Radiomic features models (indiv)/LargeAreaLowGrayLevelEmphasis.original.rda")
 
+# Store toptable, p.value, summary
 summa.fit.larALow <- decideTests(fit)
 toptable.larALow <- topTable(fit, coef="LargeAreaLowGrayLevelEmphasis.original", number = dim(counts.ok)[1])
 toptable.larALow <- toptable.larALow[order(toptable.larALow$P.Value),]
@@ -910,8 +846,21 @@ head(toptable.larALow)
 ```{r load_results_lowGLZem}
 load("/Users/carlacasanovasuarez/Desktop/Radiomic features models (indiv)/LowGrayLevelZoneEmphasis.original.rda")
 
+# Store toptable, p.value, summary
 summa.fit.lowGLZem <- decideTests(fit)
+toptable.lowGLZem <- topTable(fit, coef="LowGrayLevelZoneEmphasis.original", number = dim(counts.ok)[1])
+toptable.lowGLZem <- toptable.lowGLZem[order(toptable.lowGLZem$P.Value),]
+p.val.voom <- as.data.frame(fit$p.value)
+
+# P-value distribution of results computed by limma
+ggplot(data = p.val.voom, aes(x = LowGrayLevelZoneEmphasis.original)) + 
+  geom_histogram(bins = 100)
+
+# QQplot plot for p-values computed by limma
+GWASTools::qqPlot(p.val.voom$LowGrayLevelZoneEmphasis.original)
+
 summary(summa.fit.lowGLZem)
+head(toptable.lowGLZem)
 ```
 
 
@@ -956,7 +905,7 @@ load("/Users/carlacasanovasuarez/Desktop/Radiomic features models (indiv)/SmallA
 
 summa.fit.smAHem <- decideTests(fit)
 toptable.smAHem <- topTable(fit, coef="SmallAreaHighGrayLevelEmphasis.original", number = dim(counts.ok)[1])
-toptable.smAHem <- toptable.idmnO[order(toptable.smAHem$P.Value),]
+toptable.smAHem <- toptable.smAHem[order(toptable.smAHem$P.Value),]
 p.val.voom <- as.data.frame(fit$p.value)
 
 # P-value distribution of results computed by limma
@@ -1115,7 +1064,19 @@ head(toptable.larDepEm)
   load("/Users/carlacasanovasuarez/Desktop/Radiomic features models (indiv)/LargeDependenceHighGrayLevelEmphasis.original.rda")
 
 summa.fit.larDepHigh <- decideTests(fit)
+toptable.larDepHigh <- topTable(fit, coef="LargeDependenceHighGrayLevelEmphasis.original", number = dim(counts.ok)[1])
+toptable.larDepHigh <- toptable.larDepHigh[order(toptable.larDepHigh$P.Value),]
+p.val.voom <- as.data.frame(fit$p.value)
+
+# P-value distribution of results computed by limma
+ggplot(data = p.val.voom, aes(x = LargeDependenceHighGrayLevelEmphasis.original)) + 
+  geom_histogram(bins = 100)
+
+# QQplot plot for p-values computed by limma
+GWASTools::qqPlot(p.val.voom$LargeDependenceHighGrayLevelEmphasis.original)
+
 summary(summa.fit.larDepHigh)
+head(toptable.larDepHigh, 10)
 ```
 
 
@@ -1207,19 +1168,7 @@ head(toptable.coar, 10)
 load("/Users/carlacasanovasuarez/Desktop/Radiomic features models (indiv)/Complexity.original.rda")
 
 summa.fit.comp <- decideTests(fit)
-toptable.comp <- topTable(fit, coef="Complexity.original", number = dim(counts.ok)[1])
-toptable.comp <- toptable.comp[order(toptable.comp$P.Value),]
-p.val.voom <- as.data.frame(fit$p.value)
-
-# P-value distribution of results computed by limma
-ggplot(data = p.val.voom, aes(x = Complexity.original)) + 
-  geom_histogram(bins = 100)
-
-# QQplot plot for p-values computed by limma
-GWASTools::qqPlot(p.val.voom$Complexity.original)
-
 summary(summa.fit.comp)
-head(toptable.comp, 10)
 ```
 
 
@@ -1352,17 +1301,43 @@ summary(summa.fit.med)
 ```
 
 
-```{r load_results_min, eval=FALSE}
+```{r load_results_min}
 load("/Users/carlacasanovasuarez/Desktop/Radiomic features models (indiv)/Minimum.original.rda")
+
 summa.fit.min <- decideTests(fit)
+toptable.min <- topTable(fit, coef="Minimum.original", number = dim(counts.ok)[1])
+toptable.min <- toptable.min[order(toptable.min$P.Value),]
+p.val.voom <- as.data.frame(fit$p.value)
+
+# P-value distribution of results computed by limma
+ggplot(data = p.val.voom, aes(x = Minimum.original)) + 
+  geom_histogram(bins = 100)
+
+# QQplot plot for p-values computed by limma
+GWASTools::qqPlot(p.val.voom$Minimum.original)
+
 summary(summa.fit.min)
+head(toptable.min, 10)
 ```
 
 
 ```{r load_results_range}
 load("/Users/carlacasanovasuarez/Desktop/Radiomic features models (indiv)/Range.original.rda")
+
 summa.fit.range <- decideTests(fit)
+toptable.range <- topTable(fit, coef="Range.original", number = dim(counts.ok)[1])
+toptable.range <- toptable.range[order(toptable.range$P.Value),]
+p.val.voom <- as.data.frame(fit$p.value)
+
+# P-value distribution of results computed by limma
+ggplot(data = p.val.voom, aes(x = Range.original)) + 
+  geom_histogram(bins = 100)
+
+# QQplot plot for p-values computed by limma
+GWASTools::qqPlot(p.val.voom$Range.original)
+
 summary(summa.fit.range)
+head(toptable.range, 10)
 ```
 
 
@@ -1400,12 +1375,12 @@ summary(summa.fit.skw)
 ```
 
 
-## Features with positive DE  
+## Enrichment    
 
 Load RadAR object in order to retrieve `rowdata` later:  
 
 ```{r load_rdr}
-load("/Users/carlacasanovasuarez/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/radar_L1_Norm_scaled_adjusted_min_int_center_final.rda")
+load("/Users/carlacasanovasuarez/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/radar_L1_Norm_scaled_adjusted_combat_final.rda")
 
 rdr_L1_final
 ```
@@ -1418,134 +1393,165 @@ load("/Users/carlacasanovasuarez/Documents/Master Bioinformatics UAB/Prácticas 
 
 Create a vector with feature names of features positively associated with genes DE:  
 
-```{r positive_features}
-pos_rf <- c("Sphericity.original",
+```{r positive_features_Combat}
+pos_rf <- list("MeshVolume.original",
+               "Sphericity.original",
+               "VoxelVolume.original",
                "Variance.original",
                "Autocorrelation.original",
                "ClusterShade.original",
-               "Contrast.original",
-               "DifferenceAverage.original",
-               "Id.original",
-               "Idm.original",
-               "Idmn.original",
-               "Idn.original",
-               "InverseVariance.original",
                "JointAverage.original",
                "SumAverage.original",
                "HighGrayLevelEmphasis.original",
                "LongRunLowGrayLevelEmphasis.original",
-               "LowGrayLevelRunEmphasis.original",
-               "RunPercentage.original",
+               "HighGrayLevelZoneEmphasis.original",
                "LargeAreaEmphasis.original",
                "LowGrayLevelEmphasis.original",
                "LargeAreaHighGrayLevelEmphasis.original",
                "LargeAreaLowGrayLevelEmphasis.original",
+               "LowGrayLevelZoneEmphasis.original",
                "SmallAreaEmphasis.original",
                "SmallAreaHighGrayLevelEmphasis.original",
                "SmallAreaLowGrayLevelEmphasis.original",
                "ZoneVariance.original",
                "DependenceNonUniformity.original",
-               "HighGrayLevelRunEmphasis.original",
-               "LargeDependenceEmphasis.original",
+               "LargeDependenceHighGrayLevelEmphasis.original",
                "LargeDependenceLowGrayLevelEmphasis.original",
                "Busyness.original",
                "Coarseness.original",
-               "Complexity.original",
                "Strength.original",
-               "X10Percentile.original",
-               "InterquartileRange.original")
+               "InterquartileRange.original",
+               "Range.original")
 ```
 
 
-Not all the features are equally robust. We're just interested in *first order*, *shape* and *glcm*:  
+Create a data frame with information about **feature type** and **clustering** of radiomic features associated to DE genes:  
 
 ```{r check_feature_type}
-# Create a data frame with feature types
+set.seed(1234)
+
+# Change feature name to match rdr row data (crop ".original")
 feature_names <- substr(pos_rf, 1, nchar(pos_rf)-9) 
 
-# Check row data of rdr object which as feature name and feature type
-ids <- rowData(rdr_L1_final)$feature_name %in% feature_names
-out <- cbind(feature_names,
-              feature.type = rowData(rdr_L1_final)[ids, ]$feature_type)
+# Check order
+identical(rowData(rdr_L1_final)$feature_name, feature_names)
+feature_names_ordered <- intersect(rowData(rdr_L1_final)$feature_name, feature_names)
+
+# Check row data of rdr object: feature name and feature type
+ids <- which(rowData(rdr_L1_final)$feature_name %in% feature_names_ordered)
+identical(rowData(rdr_L1_final)[ids, "feature_name"], feature_names_ordered)
+out <- cbind(feature_names_ordered,
+              feature.type = rowData(rdr_L1_final)[ids, "feature_type"])
 out <- as.data.frame(out)
+
+# Compute clusters and add them to the final dataframe
+rdr_positive <- rdr_assay[unlist(pos_rf),]
+k.res <- kmeans(rdr_positive, centers = 6)
+
+# Check order of kmeans clustering results and out dataframe. CHANGE IT!
+identical(substr(rownames(rdr_positive), 1, nchar(rownames(rdr_positive))-9), out$feature_names_ordered)
+k.results.order <- intersect(substr(names(k.res$cluster), 1, nchar(names(k.res$cluster))-9), out$feature_names_ordered)
+rownames(out) <- out$feature_names_ordered
+out <- out[k.results.order,]
+
+# Add results from k.means properly ordered 
+out$cluster <- k.res$cluster
+out <- out %>% arrange(cluster, feature.type)
 
 out
 ```
 
 
-### First order enrichment analysis  
-
-Check features are *first order*:  
+### Cluster 1  
+Check features in *cluster 1*:  
 
 ```{r fo_subset}
-first.order.DE <- out[out$feature.type == "first_order_statistics",]
+cluster1.DE <- out[out$cluster == 1,]
 
 # In this case, the only features correlated are LowGrayLevelEmphasis and Autocorrelation
-first.order.DE
+cluster1.DE
 ```
 
 Store names of genes DE (p.adj < 0.01 if possible):  
 
-```{r fo_genes}
+```{r de_genes_1}
 # Create bools for genes with the most restrictive p.value 
-dd.fo.Auto <- toptable.autoc$adj.P.Val < 0.01 & !is.na(toptable.autoc$adj.P.Val)
-dd.fo.Variance <- toptable.variance$adj.P.Val < 0.04 & !is.na(toptable.variance$adj.P.Val)
-dd.fo.X10 <- toptable.X10$adj.P.Val < 0.01 & !is.na(toptable.X10$adj.P.Val)
+dd.1.Variance <- toptable.variance$adj.P.Val < 0.05 & !is.na(toptable.variance$adj.P.Val)
+dd.1.clustSh <- toptable.clustSh$adj.P.Val < 0.05 & !is.na(toptable.clustSh$adj.P.Val)
+dd.1.hglZEM <- toptable.hglZEM$adj.P.Val < 0.05 & !is.na(toptable.hglZEM$adj.P.Val)
+dd.1.lowGLem <- toptable.lowGLem$adj.P.Val < 0.05 & !is.na(toptable.lowGLem$adj.P.Val)
+dd.1.smAHem <- toptable.smAHem$adj.P.Val < 0.05 & !is.na(toptable.smAHem$adj.P.Val)
+dd.1.larDepLow <- toptable.larDepLow$adj.P.Val < 0.05 & !is.na(toptable.larDepLow$adj.P.Val)
+dd.1.busy <- toptable.busy$adj.P.Val < 0.05 & !is.na(toptable.busy$adj.P.Val)
+dd.1.intq <- toptable.intq$adj.P.Val < 0.05 & !is.na(toptable.intq$adj.P.Val)
+dd.1.range <- toptable.range$adj.P.Val < 0.05 & !is.na(toptable.range$adj.P.Val)
 
-deGenes.fo <- c(rownames(toptable.variance[dd.fo.Variance, ]),rownames(toptable.X10[dd.fo.X10, ]), rownames(toptable.autoc[dd.fo.Auto, ]))
+deGenes.1 <- c(rownames(toptable.variance[dd.1.Variance, ]),rownames(toptable.clustSh[dd.1.clustSh, ]), rownames(toptable.hglZEM[dd.1.hglZEM, ]), rownames(toptable.lowGLem[dd.1.lowGLem,]), rownames(toptable.smAHem[dd.1.smAHem,]), rownames(toptable.larDepLow[dd.1.larDepLow,]), rownames(toptable.busy[dd.1.busy,]), rownames(toptable.intq[dd.1.intq,]), rownames(toptable.range[dd.1.range,]))
 
-deGenes.fo
-length(deGenes.fo)
-table(duplicated(deGenes.fo))
+# Length and duplicates
+length(deGenes.1)
+table(duplicated(deGenes.1))
+
+# Use unique IDs
+deGenes.1 <- unique(deGenes.1)
+length(deGenes.1)
+
+deGenes.1
+
+#save(deGenes.1, file = "list DE genes cluster 1.rda")
+#load("list DE genes cluster 1.rda")
 ```
 
 Check if there are annotations available:  
 
-```{r de_genes_ann_fo}
+```{r de_genes_ann_1}
 # Check info 
-annotation.sputum.ok[deGenes.fo,]
+annotation.sputum.ok[deGenes.1,]
 ```
 
 Create gene universe:  
 
-```{r gene_universe_fo}
-geneUniverse.fo <- rownames(toptable.autoc[!is.na(toptable.autoc$P.Value), ]) 
-length(geneUniverse.fo)
+```{r gene_universe_1}
+geneUniverse.1 <- rownames(toptable.variance[!is.na(toptable.variance$P.Value), ]) 
+length(geneUniverse.1)
 ```
 
 Change annotation to `ENTREZ`:  
 
-```{r entrez_annotation_fo}
+```{r entrez_annotation_1}
 # Retrieve ENTREZ names 
-deGenes.fo.entrez <- unlist(mget(deGenes.fo, envir=hgu133plus2ENTREZID, ifnotfound = NA))
-geneUniverse.fo.entrez <- unlist(mget(geneUniverse.fo, envir=hgu133plus2ENTREZID, ifnotfound = NA))
+deGenes.1.entrez <- unlist(mget(deGenes.1, envir=hgu133plus2ENTREZID, ifnotfound = NA))
+#geneUniverse.1.entrez <- unlist(mget(geneUniverse.1, envir=hgu133plus2ENTREZID, ifnotfound = NA))
 ```
 
 **GO** enrichment:  
 
-```{r GO_enrichment_fo}
-ans.go.fo <- enrichGO(gene = deGenes.fo.entrez, ont = "BP",
-                      universe = geneUniverse.fo.entrez,
-                      OrgDb ="org.Hs.eg.db", 
-                      readable=TRUE, pvalueCutoff = 0.05)
+```{r GO_enrichment_1}
+ans.go.1 <- enrichGO(gene = deGenes.1.entrez, ont = "BP",
+                     #universe = geneUniverse.1.entrez,
+                     OrgDb ="org.Hs.eg.db", 
+                     readable=TRUE, pvalueCutoff = 1,
+                     qvalueCutoff = 1)
 
 # See results
-tab.go.fo <- as.data.frame(ans.go.fo@result) 
-#tab.go.fo<- subset(tab.go.fo, Count>5) 
-tab.go.fo[1:5, 1:6]
+tab.go.1 <- as.data.frame(ans.go.1@result) 
+#tab.go.1 <- subset(tab.go.1, Count>2) 
+tab.go.1[1:5, 1:6]
 ```
 
+**KEEG** enrichment:  
 
-```{r kegg_fo}
-ans.kegg.fo <- enrichKEGG(gene = deGenes.fo.entrez,
-                          universe = geneUniverse.fo.entrez,
-                          organism = 'hsa',
-                          pvalueCutoff = 0.05) 
+```{r kegg_1}
+ans.kegg.1 <- enrichKEGG(gene = deGenes.1.entrez,
+                          #universe = geneUniverse.1.entrez,
+                         organism = 'hsa',
+                         pvalueCutoff = 1,
+                         qvalueCutoff = 1) 
 
 # See results
-tab.kegg.fo <- as.data.frame(ans.kegg.fo@result)
-#tab.kegg.fo<- subset(tab.kegg.fo, Count>5) 
-tab.kegg.fo[1:5, 1:6]
+tab.kegg.1 <- as.data.frame(ans.kegg.1@result)
+#tab.kegg.1 <- subset(tab.kegg.1, Count>2) 
+tab.kegg.1[1:5, 1:6]
 ```
 
 **DisGeNet** analysis. Get API:  
@@ -1560,270 +1566,684 @@ Sys.setenv(DISGENET_API_KEY= disgenet_api_key)
 ```
 
 
-```{r disgenet_enrichment_fo}
-res_enrich.fo <-disease_enrichment(entities = deGenes.fo.entrez, vocabulary = "ENTREZ", database = "CURATED")
+```{r disgenet_enrichment_1}
+res_enrich.1 <-disease_enrichment(entities = deGenes.1.entrez, vocabulary = "ENTREZ", database = "CURATED")
 
-res.table.disgenet.fo <- res_enrich.fo@qresult
-res.table.disgenet.fo
+res.table.disgenet.1 <- res_enrich.1@qresult
+res.table.disgenet.1
 
-#save(res.table.disgenet.fo, file = "/Users/carlacasanovasuarez/Desktop/DisGenet_fo_features.rda")
+#save(res.table.disgenet.1, file = "/Users/carlacasanovasuarez/Documents/R directory/Radiomic features/Transcriptomic analysis/DisGenet_1_features.rda")
 ```
 
 **MSigDb** enrichment analysis (group C7 inmunologic signature):  
 
-```{r msigdb_fo}
+```{r msigdb_1}
 # Load terms for genes coded by ENTREZ of the gene set C7
 c3.tf <- read.gmt("/Users/carlacasanovasuarez/Downloads/c7.all.v7.5.1.entrez.gmt.txt")
 
 # Enrichment
-ans.tf.fo <- enricher(deGenes.fo.entrez, TERM2GENE=c3.tf) 
-tab.tf.fo <- as.data.frame(ans.tf.fo@result)
-#tab.tf.fo<- subset(tab.tf.fo, Count>5) 
-tab.tf.fo[1:5,1:5]
+ans.tf.1 <- enricher(deGenes.1.entrez, TERM2GENE=c3.tf, pvalueCutoff =1) 
+tab.tf.1 <- as.data.frame(ans.tf.1@result)
+#tab.tf.f1<- subset(tab.tf.f1, Count>5) 
+tab.tf.1[1:5,1:5]
 ```
 
 
-### Shape  
+### Cluster 2    
 
-```{r sh_subset}
-shape.DE <- out[out$feature.type == "first_order_shape",]
+```{r clust2_subset}
+cluster2.DE <- out[out$cluster == 2,]
 
 # In this case, these features are not correlated
-shape.DE
+cluster2.DE
 ```
 
 Store names of genes DE (p.adj < 0.01 if possible):  
 
-```{r shape_genes}
+```{r clust2_genes}
 # Create bools for genes with the most restrictive p.value 
-dd.shape.s <- toptable.sphericity$adj.P.Val < 0.01 & !is.na(toptable.sphericity$adj.P.Val)
-dd.shape.intq <- toptable.intq$adj.P.Val < 0.02 & !is.na(toptable.intq$adj.P.Val)
+dd.2.MeshVol <- toptable.MeshVol$adj.P.Val < 0.05 & !is.na(toptable.MeshVol$adj.P.Val)
+dd.2.voxVol <- toptable.voxVol$adj.P.Val < 0.05 & !is.na(toptable.voxVol$adj.P.Val)
+dd.2.depNU <- toptable.depNU$adj.P.Val < 0.05 & !is.na(toptable.depNU$adj.P.Val)
 
-deGenes.shape <- c(rownames(toptable.sphericity[dd.shape.s, ]),rownames(toptable.intq[dd.shape.intq, ]))
+deGenes.2 <- c(rownames(toptable.MeshVol[dd.2.MeshVol, ]),rownames(toptable.voxVol[dd.2.voxVol, ]), rownames(toptable.depNU[dd.2.depNU,]))
 
-deGenes.shape
-length(deGenes.shape)
-table(duplicated(deGenes.shape))
+# Check duplicates
+length(deGenes.2)
+table(duplicated(deGenes.2))
+
+# Remove duplicates
+deGenes.2 <- unique(deGenes.2)
+
+deGenes.2
 ```
 
 Check if there are annotations available:  
 
-```{r de_genes_ann}
+```{r de_genes_ann_clust2}
 # Check info 
-annotation.sputum.ok[deGenes.shape,]
+annotation.sputum.ok[deGenes.2,]
 ```
 
 Gene universe shape:  
 
-```{r gene_universe_sh}
+```{r gene_universe_sh, eval=FALSE}
 geneUniverse.sh <- rownames(toptable.sphericity[!is.na(toptable.sphericity$P.Value), ]) 
 length(geneUniverse.sh)
 ```
 
 Change annotation to `ENTREZ`:  
 
-```{r entrez_annotation_shape}
+```{r entrez_annotation_clust2}
 # Retrieve ENTREZ names 
-deGenes.sh.entrez <- unlist(mget(deGenes.shape, envir=hgu133plus2ENTREZID, ifnotfound = NA))
-geneUniverse.sh.entrez <- unlist(mget(geneUniverse.sh, envir=hgu133plus2ENTREZID, ifnotfound = NA))
+deGenes.2.entrez <- unlist(mget(deGenes.2, envir=hgu133plus2ENTREZID, ifnotfound = NA))
+#geneUniverse.sh.entrez <- unlist(mget(geneUniverse.sh, envir=hgu133plus2ENTREZID, ifnotfound = NA))
 ```
 
 **GO** enrichment:  
 
-```{r GO_enrichment_shape}
-ans.go.sh <- enrichGO(gene = deGenes.sh.entrez, ont = "BP",
-                      universe = geneUniverse.sh.entrez,
+```{r GO_enrichment_clust2}
+ans.go.2 <- enrichGO(gene = deGenes.2.entrez, ont = "BP",
+                      #universe = geneUniverse.sh.entrez,
                       OrgDb ="org.Hs.eg.db", 
                       readable=TRUE, pvalueCutoff = 0.05)
 
 # See results
-tab.go.sh <- as.data.frame(ans.go.sh@result) 
-#tab.go.sh<- subset(tab.go.sh, Count>5) 
-tab.go.sh[1:5, 1:6]
+tab.go.2 <- as.data.frame(ans.go.2@result) 
+#tab.go.2<- subset(tab.go.2, Count>5) 
+tab.go.2[1:5, 1:6]
 ```
 
 **KEGG** enrichment:  
 
-```{r kegg_sh}
-ans.kegg.sh <- enrichKEGG(gene = deGenes.sh.entrez, 
+```{r kegg_clust2, eval=FALSE}
+ans.kegg.2 <- enrichKEGG(gene = deGenes.2.entrez, 
                        organism = 'hsa',
-                       universe = geneUniverse.sh.entrez,
-                       pvalueCutoff = 0.05) 
+                       #universe = geneUniverse.sh.entrez,
+                       pvalueCutoff = 1,
+                       qvalueCutoff = 1) 
 
 # See results
-tab.kegg.sh <- as.data.frame(ans.kegg.sh@result)
-#tab.kegg.sh <- subset(tab.kegg.sh, Count>5) 
-tab.kegg.sh[1:5, 1:6]
+tab.kegg.2 <- as.data.frame(ans.kegg.2@result)
+#tab.kegg.2 <- subset(tab.kegg.2, Count>5) 
+tab.kegg.2[1:5, 1:6]
 ```
 
 Disgenet:  
 
-```{r disgenet_enrichment_sh}
-res_enrich.sh <-disease_enrichment(entities = deGenes.sh.entrez, vocabulary = "ENTREZ", database = "CURATED")
+```{r disgenet_enrichment_clust2}
+res_enrich.2 <-disease_enrichment(entities = deGenes.2.entrez, vocabulary = "ENTREZ", database = "CURATED")
 
-res.table.disgenet.sh <- res_enrich.sh@qresult
-res.table.disgenet.sh
+res.table.disgenet.2 <- res_enrich.2@qresult
+res.table.disgenet.2
 
-#save(res.table.disgenet.sh, file = "/Users/carlacasanovasuarez/Desktop/DisGenet_shape_features.rda")
+#save(res.table.disgenet.2, file = "/Users/carlacasanovasuarez/Documents/R directory/Radiomic features/Transcriptomic analysis/DisGenet_2_features.rda")
 ```
 
 **MSigDb** enrichment analysis (group C7 inmunologic signature):  
 
-```{r msigdb_sh}
+```{r msigdb_clust2}
 # Load terms for genes coded by ENTREZ of the gene set C7
 c3.tf <- read.gmt("/Users/carlacasanovasuarez/Downloads/c7.all.v7.5.1.entrez.gmt.txt")
 
 # Enrichment
-ans.tf.sh <- enricher(deGenes.sh.entrez, TERM2GENE=c3.tf) 
-tab.tf.sh <- as.data.frame(ans.tf.sh@result)
-#tab.tf.sh <- subset(tab.tf.sh, Count>5) 
-tab.tf.sh[1:5,1:5]
+ans.tf.2 <- enricher(deGenes.2.entrez, TERM2GENE=c3.tf) 
+tab.tf.2 <- as.data.frame(ans.tf.2@result)
+#tab.tf.2 <- subset(tab.tf.2, Count>5) 
+tab.tf.2[1:5,1:5]
 ```
 
 
-## glcm  
+### cluster 3  
 
-```{r glcm_subset}
-glcm.DE <- out[out$feature.type == "grey_level_co-occurrence_matrix",]
+```{r clust3_subset}
+cluster3.DE <- out[out$cluster == 3,]
 
-# In this case, these features tighly correlated: id, idm, idmn, idn. Fueatures correlated with first order are also found, such as JointAverage and SumAverage (they are also correlated between them)
-glcm.DE
+cluster3.DE
 ```
 
 Store names of genes DE (p.adj < 0.01 if possible):  
 
-```{r glcm_genes}
+```{r clust3_genes}
 # Create bools for genes with the most restrictive p.value 
-dd.glcm.clusS <- toptable.sphericity$adj.P.Val < 0.01 & !is.na(toptable.sphericity$adj.P.Val)
-dd.glcm.sum <- toptable.sumAv$adj.P.Val < 0.01 & !is.na(toptable.sumAv$adj.P.Val) 
-dd.glcm.id <- toptable.idO$adj.P.Val < 0.05 & !is.na(toptable.idO$adj.P.Val)
-dd.glcm.idm <- toptable.idmO$adj.P.Val < 0.05 & !is.na(toptable.idmO$adj.P.Val)
-dd.glcm.hglEm <- toptable.hglEm$adj.P.Val < 0.01 & !is.na(toptable.hglEm$adj.P.Val)
+dd.3.zoneVar <- toptable.zoneVar$adj.P.Val < 0.05 & !is.na(toptable.zoneVar$adj.P.Val)
+dd.3.strength <- toptable.strength$adj.P.Val < 0.05 & !is.na(toptable.strength$adj.P.Val) 
 
-deGenes.glcm <- c(rownames(toptable.idmO[dd.glcm.idm, ]),rownames(toptable.idO[dd.glcm.id, ]), rownames(toptable.clustSh[dd.glcm.clusS, ]), rownames(toptable.sumAv[dd.glcm.sum,]), rownames(toptable.hglEm[dd.glcm.hglEm, ])) 
+deGenes.3 <- c(rownames(toptable.zoneVar[dd.3.zoneVar, ]),rownames(toptable.strength[dd.3.strength, ])) 
 
-deGenes.glcm
-length(deGenes.glcm)
-table(duplicated(deGenes.glcm))
-deGenes.glcm <- unique(deGenes.glcm)
+# Check duplicated genes
+length(deGenes.3)
+table(duplicated(deGenes.3))
+
+# Filter duplicates
+deGenes.3 <- unique(deGenes.3)
+
+deGenes.3
 ```
 
 Check if there are annotations available:  
 
-```{r de_glcm_ann}
+```{r de_clust3_ann}
 # Check info 
-annotation.sputum.ok[deGenes.glcm,]
-```
-
-Gene universe shape:  
-
-```{r gene_universe_glcm}
-geneUniverse.glcm <- rownames(toptable.sumAv[!is.na(toptable.sumAv$P.Value), ]) 
-length(geneUniverse.glcm)
+annotation.sputum.ok[deGenes.3,]
 ```
 
 Change annotation to `ENTREZ`:  
 
-```{r entrez_annotation_glcm}
+```{r entrez_annotation_clust3}
 # Retrieve ENTREZ names 
-deGenes.glcm.entrez <- unlist(mget(deGenes.glcm, envir=hgu133plus2ENTREZID, ifnotfound = NA))
-geneUniverse.glcm.entrez <- unlist(mget(geneUniverse.glcm, envir=hgu133plus2ENTREZID, ifnotfound = NA))
+deGenes.3.entrez <- unlist(mget(deGenes.3, envir=hgu133plus2ENTREZID, ifnotfound = NA))
+#geneUniverse.glcm.entrez <- unlist(mget(geneUniverse.glcm, envir=hgu133plus2ENTREZID, ifnotfound = NA))
 ```
 
 **GO** enrichment:  
 
-```{r GO_enrichment_glcm}
-ans.go.glcm <- enrichGO(gene = deGenes.glcm.entrez, ont = "BP",
-                        universe = geneUniverse.glcm.entrez,
-                        OrgDb ="org.Hs.eg.db", 
-                        readable=TRUE, pvalueCutoff = 0.05)
+```{r GO_enrichment_clust3}
+ans.go.3 <- enrichGO(gene = deGenes.3.entrez, ont = "BP",
+                        #universe = geneUniverse.glcm.entrez,
+                     OrgDb ="org.Hs.eg.db", 
+                     readable=TRUE,
+                     pvalueCutoff = 1,
+                     qvalueCutoff = 1) 
 
 # See results
-tab.go.glcm <- as.data.frame(ans.go.glcm@result) 
-#tab.go.glcm<- subset(tab.go.glcm, Count>5) 
-tab.go.glcm[1:5, 1:6]
+tab.go.3 <- as.data.frame(ans.go.3@result) 
+#tab.go.3 <- subset(tab.go.3, Count>5) 
+tab.go.3[1:5, 1:6]
 ```
 
 **KEGG** enrichment:  
 
-```{r kegg_glcm}
-ans.kegg.glcm <- enrichKEGG(gene = deGenes.glcm.entrez, 
-                            universe = geneUniverse.glcm.entrez,
-                            organism = 'hsa',
-                            pvalueCutoff = 0.05) 
+```{r kegg_clust3}
+ans.kegg.3 <- enrichKEGG(gene = deGenes.3.entrez, 
+                            #universe = geneUniverse.glcm.entrez,
+                         organism = 'hsa',
+                         pvalueCutoff = 1,
+                         qvalueCutoff = 1) 
 
 # See results
-tab.kegg.glcm <- as.data.frame(ans.kegg.glcm@result)
-#tab.kegg.glcm <- subset(tab.kegg.glcm, Count>5) 
-tab.kegg.glcm[1:5, 1:6]
+tab.kegg.3 <- as.data.frame(ans.kegg.3@result)
+#tab.kegg.3 <- subset(tab.kegg.3, Count>5) 
+tab.kegg.3[1:5, 1:6]
 ```
 
 Disgenet:  
 
-```{r disgenet_enrichment_glcm}
-res_enrich.glcm <-disease_enrichment(entities = deGenes.glcm.entrez, vocabulary = "ENTREZ", database = "CURATED")
+```{r disgenet_enrichment_clust3}
+res_enrich.3 <-disease_enrichment(entities = deGenes.3.entrez, vocabulary = "ENTREZ", database = "CURATED")
 
-res.table.disgenet.glcm <- res_enrich.glcm@qresult
-res.table.disgenet.glcm
+res.table.disgenet.3 <- res_enrich.3@qresult
+res.table.disgenet.3
 
-#save(res.table.disgenet.glcm, file = "/Users/carlacasanovasuarez/Desktop/DisGenet_glcm_features.rda")
-#write.csv(res.table.disgenet.glcm, "./Disgenet_enrichment_glcm.csv")
+#save(res.table.disgenet.3, file = "/Users/carlacasanovasuarez/Documents/R directory/Radiomic features/Transcriptomic analysis/DisGenet_3_features.rda")
 ```
 
 **MSigDb** enrichment analysis (group C7 inmunologic signature):  
 
-```{r msigdb_glcm}
+```{r msigdb_clust3}
 # Load terms for genes coded by ENTREZ of the gene set C7
 c3.tf <- read.gmt("/Users/carlacasanovasuarez/Downloads/c7.all.v7.5.1.entrez.gmt.txt")
 
 # Enrichment
-ans.tf.glcm <- enricher(deGenes.glcm.entrez, TERM2GENE=c3.tf) 
-tab.tf.glcm <- as.data.frame(ans.tf.glcm@result)
+ans.tf.3 <- enricher(deGenes.3.entrez, TERM2GENE=c3.tf, pvalueCutoff =1) 
+tab.tf.3 <- as.data.frame(ans.tf.3@result)
 #tab.tf.glcm <- subset(tab.tf.glcm, Count>5) 
-tab.tf.glcm[1:5,1:5]
+tab.tf.3[1:5,1:5]
 ```
 
+
+### Cluster 4    
+
+```{r clust4_subset}
+cluster4.DE <- out[out$cluster == 4,]
+
+cluster4.DE
+```
+
+Store names of genes DE (p.adj < 0.01 if possible):  
+
+```{r clust4_genes}
+# Create bools for genes with the most restrictive p.value 
+dd.4.sphe <- toptable.sphericity$adj.P.Val < 0.05 & !is.na(toptable.sphericity$adj.P.Val)
+
+deGenes.4 <- c(rownames(toptable.sphericity[dd.4.sphe, ]))
+
+# Check duplicates
+length(deGenes.4)
+table(duplicated(deGenes.4))
+
+# Remove duplicates
+deGenes.4 <- unique(deGenes.4)
+
+deGenes.4
+```
+
+Check if there are annotations available:  
+
+```{r de_genes_ann_clust4}
+# Check info 
+annotation.sputum.ok[deGenes.4,]
+```
+
+Change annotation to `ENTREZ`:  
+
+```{r entrez_annotation_clust4}
+# Retrieve ENTREZ names 
+deGenes.4.entrez <- unlist(mget(deGenes.4, envir=hgu133plus2ENTREZID, ifnotfound = NA))
+#geneUniverse.glcm.entrez <- unlist(mget(geneUniverse.glcm, envir=hgu133plus2ENTREZID, ifnotfound = NA))
+```
+
+**GO** enrichment:  
+
+```{r GO_enrichment_clust4}
+ans.go.4 <- enrichGO(gene = deGenes.4.entrez, ont = "BP",
+                        #universe = geneUniverse.glcm.entrez,
+                     OrgDb ="org.Hs.eg.db", 
+                     readable=TRUE,
+                     pvalueCutoff = 1,
+                     qvalueCutoff = 1) 
+
+# See results
+tab.go.4 <- as.data.frame(ans.go.4@result) 
+#tab.go.3 <- subset(tab.go.3, Count>5) 
+tab.go.4[1:5, 1:6]
+```
+
+**KEGG** enrichment:  
+
+```{r kegg_clust4}
+ans.kegg.4 <- enrichKEGG(gene = deGenes.4.entrez, 
+                            #universe = geneUniverse.glcm.entrez,
+                         organism = 'hsa',
+                         pvalueCutoff = 1,
+                         qvalueCutoff = 1) 
+
+# See results
+tab.kegg.4 <- as.data.frame(ans.kegg.4@result)
+#tab.kegg.3 <- subset(tab.kegg.3, Count>5) 
+tab.kegg.4[1:5, 1:6]
+```
+
+Disgenet:  
+
+```{r disgenet_enrichment_clust4}
+res_enrich.4 <-disease_enrichment(entities = deGenes.4.entrez, vocabulary = "ENTREZ", database = "CURATED")
+
+res.table.disgenet.4 <- res_enrich.4@qresult
+res.table.disgenet.4
+
+#save(res.table.disgenet.4, file = "/Users/carlacasanovasuarez/Documents/R directory/Radiomic features/Transcriptomic analysis/DisGenet_4_features.rda")
+```
+
+**MSigDb** enrichment analysis (group C7 inmunologic signature):  
+
+```{r msigdb_clust4}
+# Load terms for genes coded by ENTREZ of the gene set C7
+c3.tf <- read.gmt("/Users/carlacasanovasuarez/Downloads/c7.all.v7.5.1.entrez.gmt.txt")
+
+# Enrichment
+ans.tf.4 <- enricher(deGenes.4.entrez, TERM2GENE=c3.tf, pvalueCutoff =1) 
+tab.tf.4 <- as.data.frame(ans.tf.4@result)
+#tab.tf.glcm <- subset(tab.tf.glcm, Count>5) 
+tab.tf.4[1:5,1:5]
+```
+
+
+### Cluster 5  
+
+```{r clust5_subset}
+cluster5.DE <- out[out$cluster == 5,]
+
+cluster5.DE
+```
+
+Store names of genes DE (p.adj < 0.01 if possible):  
+
+```{r clust5_genes}
+# Create bools for genes with the most restrictive p.value 
+dd.5.autoc <- toptable.autoc$adj.P.Val < 0.05 & !is.na(toptable.autoc$adj.P.Val)
+dd.5.jAv <- toptable.jAv$adj.P.Val < 0.05 & !is.na(toptable.jAv$adj.P.Val)
+dd.5.sumAv <- toptable.sumAv$adj.P.Val < 0.05 & !is.na(toptable.sumAv$adj.P.Val)
+dd.5.hglEm <- toptable.hglEm$adj.P.Val < 0.05 & !is.na(toptable.hglEm$adj.P.Val)
+dd.5.lowGLZem <- toptable.lowGLZem$adj.P.Val < 0.05 & !is.na(toptable.lowGLZem$adj.P.Val)
+dd.5.smAem <- toptable.smAem$adj.P.Val < 0.05 & !is.na(toptable.smAem$adj.P.Val)
+dd.5.smALem <- toptable.smALem$adj.P.Val < 0.05 & !is.na(toptable.smALem$adj.P.Val)
+dd.5.larDepHig <- toptable.larDepHigh$adj.P.Val < 0.05 & !is.na(toptable.larDepHigh$adj.P.Val)
+
+# Store names of DE genes
+deGenes.5 <- c(rownames(toptable.autoc[dd.5.autoc, ]),rownames(toptable.jAv[dd.5.jAv, ]), rownames(toptable.sumAv[dd.5.sumAv, ]), rownames(toptable.hglEm[dd.5.hglEm,]), rownames(toptable.lowGLZem[dd.5.lowGLZem,]), rownames(toptable.smAem[dd.5.smAem,]), rownames(toptable.smALem[dd.5.smALem,]), rownames(toptable.larDepHigh[dd.5.larDepHig,]))
+
+# Check duplicates
+length(deGenes.5)
+table(duplicated(deGenes.5))
+
+# Remove duplicates
+deGenes.5 <- unique(deGenes.5)
+
+# Check if some of these genes had been already associated with other cluster
+length(deGenes.5[which(deGenes.5 %in% deGenes.1)])
+length(deGenes.5[which(deGenes.5 %in% deGenes.2)])
+length(deGenes.5[which(deGenes.5 %in% deGenes.3)])
+length(deGenes.5[which(deGenes.5 %in% deGenes.4)])
+#repeated_genes <- deGenes.5[which(deGenes.5 %in% deGenes.1)]
+#deGenes.5 <- deGenes.5[which(!(deGenes.5 %in% repeated_genes))]
+
+deGenes.5
+```
+
+Check if there are annotations available:  
+
+```{r de_genes_ann_clust5}
+# Check info 
+annotation.sputum.ok[deGenes.5,]
+```
+
+Change annotation to `ENTREZ`:  
+
+```{r entrez_annotation_clust5}
+# Retrieve ENTREZ names 
+deGenes.5.entrez <- unlist(mget(deGenes.5, envir=hgu133plus2ENTREZID, ifnotfound = NA))
+#geneUniverse.glcm.entrez <- unlist(mget(geneUniverse.glcm, envir=hgu133plus2ENTREZID, ifnotfound = NA))
+```
+
+**GO** enrichment:  
+
+```{r GO_enrichment_clust5}
+ans.go.5 <- enrichGO(gene = deGenes.5.entrez, ont = "BP",
+                        #universe = geneUniverse.glcm.entrez,
+                     OrgDb ="org.Hs.eg.db", 
+                     readable=TRUE,
+                     pvalueCutoff = 1,
+                     qvalueCutoff = 1) 
+
+# See results
+tab.go.5 <- as.data.frame(ans.go.5@result) 
+#tab.go.5 <- subset(tab.go.5, Count>5)
+tab.go.5[1:5, 1:6]
+```
+
+**KEGG** enrichment:  
+
+```{r kegg_clust5}
+ans.kegg.5 <- enrichKEGG(gene = deGenes.5.entrez, 
+                            #universe = geneUniverse.glcm.entrez,
+                         organism = 'hsa',
+                         pvalueCutoff = 1,
+                         qvalueCutoff = 1) 
+
+# See results
+tab.kegg.5 <- as.data.frame(ans.kegg.5@result)
+#tab.kegg.3 <- subset(tab.kegg.3, Count>5) 
+tab.kegg.5[1:5, 1:6]
+```
+
+Disgenet:  
+
+```{r disgenet_enrichment_clust5}
+res_enrich.5 <-disease_enrichment(entities = deGenes.5.entrez, vocabulary = "ENTREZ", database = "CURATED")
+
+res.table.disgenet.5 <- res_enrich.5@qresult
+res.table.disgenet.5
+
+#save(res.table.disgenet.5, file = "/Users/carlacasanovasuarez/Documents/R directory/Radiomic features/Transcriptomic analysis/DisGenet_5_features.rda")
+```
+
+**MSigDb** enrichment analysis (group C7 inmunologic signature):  
+
+```{r msigdb_clust5}
+# Load terms for genes coded by ENTREZ of the gene set C7
+c3.tf <- read.gmt("/Users/carlacasanovasuarez/Downloads/c7.all.v7.5.1.entrez.gmt.txt")
+
+# Enrichment
+ans.tf.5 <- enricher(deGenes.5.entrez, TERM2GENE=c3.tf) 
+tab.tf.5 <- as.data.frame(ans.tf.5@result)
+#tab.tf.glcm <- subset(tab.tf.glcm, Count>5) 
+tab.tf.5[1:5,1:5]
+```
+
+
+### Cluster 6  
+
+```{r clust6_subset}
+cluster6.DE <- out[out$cluster == 6,]
+
+cluster6.DE
+```
+
+Store names of genes DE (p.adj < 0.01 if possible):  
+
+```{r clust6_genes}
+# Create bools for genes with the most restrictive p.value 
+dd.6.lrLEm <- toptable.lrLEm$adj.P.Val < 0.05 & !is.na(toptable.lrLEm$adj.P.Val)
+dd.6.larAEm <- toptable.larAEm$adj.P.Val < 0.05 & !is.na(toptable.larAEm$adj.P.Val)
+dd.6.larAHigh <- toptable.larAHigh$adj.P.Val < 0.05 & !is.na(toptable.larAHigh$adj.P.Val)
+dd.6.larALow <- toptable.larALow$adj.P.Val < 0.05 & !is.na(toptable.larALow$adj.P.Val)
+dd.6.coar <- toptable.coar$adj.P.Val < 0.05 & !is.na(toptable.coar$adj.P.Val)
+
+
+
+# Store names of DE genes
+deGenes.6 <- c(rownames(toptable.lrLEm[dd.6.lrLEm, ]),rownames(toptable.larAEm[dd.6.larAEm, ]), rownames(toptable.larAHigh[dd.6.larAHigh, ]), rownames(toptable.larALow[dd.6.larALow,]), rownames(toptable.coar[dd.6.coar,]))
+
+# Check duplicates
+length(deGenes.6)
+table(duplicated(deGenes.6))
+
+# Remove duplicates
+deGenes.6 <- unique(deGenes.6)
+
+# Check if some of these genes had been already associated with other cluster
+length(deGenes.6[which(deGenes.6 %in% deGenes.1)])
+length(deGenes.6[which(deGenes.6 %in% deGenes.2)])
+length(deGenes.6[which(deGenes.6 %in% deGenes.3)])
+length(deGenes.6[which(deGenes.6 %in% deGenes.4)])
+length(deGenes.6[which(deGenes.6 %in% deGenes.5)])
+#repeated_genes <- deGenes.6[which(deGenes.6 %in% deGenes.5 | deGenes.6 %in% deGenes.1)]
+#deGenes.6 <- deGenes.6[which(!(deGenes.6 %in% repeated_genes))]
+
+deGenes.6
+```
+
+Check if there are annotations available:  
+
+```{r de_genes_ann_clust6}
+# Check info 
+annotation.sputum.ok[deGenes.6,]
+```
+
+Change annotation to `ENTREZ`:  
+
+```{r entrez_annotation_clust6}
+# Retrieve ENTREZ names 
+deGenes.6.entrez <- unlist(mget(deGenes.6, envir=hgu133plus2ENTREZID, ifnotfound = NA))
+#geneUniverse.glcm.entrez <- unlist(mget(geneUniverse.glcm, envir=hgu133plus2ENTREZID, ifnotfound = NA))
+```
+
+**GO** enrichment:  
+
+```{r GO_enrichment_clust6}
+ans.go.6 <- enrichGO(gene = deGenes.6.entrez, ont = "BP",
+                        #universe = geneUniverse.glcm.entrez,
+                     OrgDb ="org.Hs.eg.db", 
+                     readable=TRUE,
+                     pvalueCutoff = 1,
+                     qvalueCutoff = 1) 
+
+# See results
+tab.go.6 <- as.data.frame(ans.go.6@result) 
+#tab.go.3 <- subset(tab.go.3, Count>5) 
+tab.go.6[1:5, 1:6]
+```
+
+
+**KEGG** enrichment:  
+
+```{r kegg_clust6}
+ans.kegg.6 <- enrichKEGG(gene = deGenes.6.entrez, 
+                            #universe = geneUniverse.glcm.entrez,
+                         organism = 'hsa',
+                         pvalueCutoff = 1,
+                         qvalueCutoff = 1) 
+
+# See results
+tab.kegg.6 <- as.data.frame(ans.kegg.6@result)
+#tab.kegg.3 <- subset(tab.kegg.3, Count>5) 
+tab.kegg.6[1:5, 1:6]
+```
+
+Disgenet:  
+
+```{r disgenet_enrichment_clust6}
+res_enrich.6 <-disease_enrichment(entities = deGenes.6.entrez, vocabulary = "ENTREZ", database = "CURATED")
+
+res.table.disgenet.6 <- res_enrich.6@qresult
+res.table.disgenet.6
+
+#save(res.table.disgenet.5, file = "/Users/carlacasanovasuarez/Documents/R directory/Radiomic features/Transcriptomic analysis/DisGenet_5_features.rda")
+```
+
+**MSigDb** enrichment analysis (group C7 inmunologic signature):  
+
+```{r msigdb_clust6}
+# Load terms for genes coded by ENTREZ of the gene set C7
+c3.tf <- read.gmt("/Users/carlacasanovasuarez/Downloads/c7.all.v7.5.1.entrez.gmt.txt")
+
+# Enrichment
+ans.tf.6 <- enricher(deGenes.6.entrez, TERM2GENE=c3.tf) 
+tab.tf.6 <- as.data.frame(ans.tf.6@result)
+#tab.tf.glcm <- subset(tab.tf.glcm, Count>5) 
+tab.tf.6[1:5,1:5]
+```
 
 ## Summary  
 
-First order:  
+Cluster 1:  
 
-```{r fo_plots}
+```{r 1_plots}
 # GO
-dotplot(ans.go.fo, showCategory=20) + ggtitle("GO First order") 
+pclus1GO <- dotplot(ans.go.1, showCategory=10) + ggtitle("GO of DE genes from sputum associated with Cluster 1") 
 
 # KEGG
-x2 <- pairwise_termsim(ans.kegg.fo) 
-emapplot(x2)
+x1 <- pairwise_termsim(ans.kegg.1)
+pclus1KEEG <- emapplot(x1, showCategory = 10) + ggtitle("KEEG of DE genes from sputum associated with Cluster 1") 
 
 # Disgenet plot() function only displays diseases from ratios > 0.4. 
-plot(res_enrich.fo, class = "Enrichment",  cutoff= 0.05) 
+pclus1Dis <- plot(res_enrich.1, class = "Enrichment",  cutoff= 1) + ggtitle("DisGeNET (sputum) with Cluster 1") 
+
+# MSigDb immune signatures
+#pclus1Msig <- dotplot(ans.tf.1) + ggtitle("MSigDb immunologic signatures")
+
+pAllclus1 <- plot_grid(pclus1GO, pclus1Dis, pclus1KEEG, labels = c("A", "B", "C"))
+
+ggsave("Enrichment Cluster 1 NEW.pdf",pAllclus1, width=7, height=7, units="cm", scale=5)
 ```
 
 
-Shape:  
+Cluster 2:  
 
-```{r sh_plots}
+```{r 2_plots}
 # GO
-dotplot(ans.go.sh, showCategory=20) + ggtitle("GO Shape features") 
+pclus2GO <- dotplot(ans.go.2, showCategory=10) + ggtitle("GO of DE genes from sputum associated with Cluster 2") 
 
 # KEGG
-# WARNING <- p.value not significant
-#x3 <- pairwise_termsim(ans.kegg.sh) 
-#emapplot(x3)
+#x2 <- pairwise_termsim(ans.kegg.2)
+#pclus2KEEG <- emapplot(x2, showCategory = 10) + ggtitle("KEEG Cluster 2 sputum") 
+
+# Disgenet plot() function only displays diseases from ratios > 0.4. 
+#pclus2Dis <- plot(res_enrich.2, class = "Enrichment",  cutoff= 1) + ggtitle("DisGeNET Cluster 2 sputum") 
+
+#pAllclus2 <- plot_grid(pclus2GO, pclus2Dis, labels = c("A", "B"))
+
+# MSigDb immune signatures
+pclus2Msig <- dotplot(ans.tf.2) + ggtitle("MSigDb immunologic signatures")
+
+pAllclus2 <- plot_grid(pclus2GO, pclus2Msig, labels = c("A", "B"))
+
+ggsave("Enrichment Cluster 2 NEW.pdf",pAllclus2, width=9, height=6, units="cm", scale=5)
+```
+
+Cluster 3:  
+
+```{r 3_plots}
+# GO
+pclus3GO <- dotplot(ans.go.3, showCategory=10) + ggtitle("GO of DE genes from sputum associated with Cluster 3") 
+
+# KEGG
+x3 <- pairwise_termsim(ans.kegg.3)
+pclus3KEEG <- emapplot(x3, showCategory = 10) + ggtitle("KEEG of DE genes from sputum associated with Cluster 3") 
+
+# Disgenet plot() function only displays diseases from ratios > 0.4. 
+pclus3Dis <- plot(res_enrich.3, class = "Enrichment",  cutoff= 1) + ggtitle("DisGeNET (sputum) with Cluster 3") 
+
+pAllclus3 <- plot_grid(pclus3GO, pclus3Dis, pclus3KEEG, labels = c("A", "B", "C"))
+
+# MSigDb immune signatures
+#pclus3Msig <- dotplot(ans.tf.3) + ggtitle("MSigDb immunologic signatures")
+
+ggsave("Enrichment Cluster 3 NEW.pdf",pAllclus3, width=7, height=7, units="cm", scale=5.5)
+```
+
+Cluster 4:  
+
+```{r 4_plots}
+# GO
+pclus4GO <- dotplot(ans.go.4, showCategory=10) + ggtitle("GO of DE genes from sputum associated with Cluster 4") 
+
+# KEGG
+x4 <- pairwise_termsim(ans.kegg.4)
+pclus4KEEG <- emapplot(x4, showCategory = 10) + ggtitle("KEEG of DE genes from sputum associated with Cluster 4") 
+
+# Disgenet plot() function only displays diseases from ratios > 0.4. 
+pclus4Dis <- plot(res_enrich.4, class = "Enrichment",  cutoff= 1) + ggtitle("DisGeNET (sputum) with Cluster 4") 
+
+# MSigDb immune signatures
+#pclus4Msig <- dotplot(ans.tf.4) + ggtitle("MSigDb immunologic signatures")
+
+pAllclus4 <- plot_grid(pclus4GO, pclus4Dis, pclus4KEEG, labels = c("A", "B", "C"))
+
+ggsave("Enrichment Cluster 4 NEW.pdf",pAllclus4, width=7, height=7, units="cm", scale=5)
+```
+
+Cluster 5:  
+
+```{r 5_plots}
+# GO
+pclus5GO <- dotplot(ans.go.5, showCategory=10) + ggtitle("GO of DE genes from sputum with Cluster 5") 
+
+# KEGG
+x5 <- pairwise_termsim(ans.kegg.5)
+pclus5KEEG <- emapplot(x5, showCategory = 10) + ggtitle("KEEG of DE genes from sputum with Cluster 5") 
+
+# Disgenet plot() function only displays diseases from ratios > 0.4. 
+pclus5Dis <- plot(res_enrich.5, class = "Enrichment",  cutoff= 1) + ggtitle("DisGeNET (sputum) with Cluster 5")
+
+# MSigDb immune signatures
+pclus5Msig <- dotplot(ans.tf.5) + ggtitle("MSigDb immunologic signatures")
+
+pAllclus5 <- plot_grid(pclus5GO, pclus5Dis, pclus5KEEG, pclus5Msig, labels = c("A", "B", "C", "D"))
+
+ggsave("Enrichment Cluster 5 TEST.pdf",pAllclus5, width=6, height=7, units="cm", scale=5.5)
 ```
 
 
-Glcm:  
+Cluster 6:
 
-```{r glcm_plots, eval=FALSE}
+```{r 6_plots}
 # GO
-# WARNING <- p.value not significant
-#dotplot(ans.go.glcm, showCategory=20) + ggtitle("GO GLCM features") 
+pclus6GO <- dotplot(ans.go.6, showCategory=10) + ggtitle("GO of DE genes from sputum associated with Cluster 6") 
 
 # KEGG
-# WARNING <- p.value not significant
-#x4 <- pairwise_termsim(ans.kegg.glcm) 
-#emapplot(x4)
+x6 <- pairwise_termsim(ans.kegg.6)
+pclus6KEEG <- emapplot(x6, showCategory = 10) + ggtitle("KEEG of DE genes from sputum associated with Cluster 6") 
+
+# Disgenet plot() function only displays diseases from ratios > 0.4. 
+pclus6Dis <- plot(res_enrich.6, class = "Enrichment",  cutoff= 1) + ggtitle("DisGeNET (sputum) with Cluster 6") 
+
+# MSigDb immune signatures
+pclus6Msig <-  dotplot(ans.tf.6) + ggtitle("MSigDb immunologic signatures")
+
+pAllclus6 <- plot_grid(pclus6GO, pclus6Dis, pclus6KEEG, pclus6Msig, labels = c("A", "B", "C", "D"))
+
+ggsave("Enrichment Cluster 6 NEW2.pdf",pAllclus6, width=7, height=7, units="cm", scale=6)
 ```
 
