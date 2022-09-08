@@ -8,7 +8,7 @@ Repository of R/Bioc/shell code of master theses and graduate final projects **_
 
 - Carla Casanova. RNA-seq analysis using radiomic features calculated from lungs of patients with COPD. Master in Bioinformatics, Universitat Autonoma de Barcelona (UAB). July 2022. [Script Repository](https://github.com/isglobal-brge/master_thesis/tree/master/Radiomic_transcriptomic).
 
-- Laura Balague. Common inversion polymorphisms and their role in Autism Spectrum Disorders. Master in Bioinformatics, Universitat Autonoma de Barcelona (UAB). July 2020. [Script Repository](https://github.com/isglobal-brge/master_thesis/tree/master/inversions_exposome).
+- Laura Balague. Common inversion polymorphisms and their role in Autism Spectrum Disorders. Master in Bioinformatics, Universitat Autonoma de Barcelona (UAB). July 2020. [Script Repository](https://github.com/isglobal-brge/master_thesis/tree/master/inversions_ASD).
 
 - Natalia Carreras. Mediation analysis of the association between polymorphic inversions and human traits with multi-omic data. Master in Bioinformatics, Universitat Autonoma de Barcelona (UAB). July 2020. [Script Repository](https://github.com/isglobal-brge/master_thesis/tree/master/inversions_exposome).
 
