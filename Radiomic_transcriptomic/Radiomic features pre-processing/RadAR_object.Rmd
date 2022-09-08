@@ -9,12 +9,24 @@ output: pdf_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## Explore data in the rdr object  
-
 ```{r import_RadAR}
 library(RadAR)
 library(dplyr)
 ```
+
+## Create RadAR object  
+Radiomic features results from *Pyradiomics* package are stored in one `tsv` file per patient. They must have a format defined by *Pyradiomics* and, in this case, `tsv` files were slightly modified with a Python script for correcting format. Afterwards, *RadAR* object was created as follows:  
+
+```{r rdr_from_pyradiomics}
+# Create rdr object
+rdr <- import_pyradiomics(dir = "/Users/carla/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/results/results_correct_format_Norm/")
+
+# Save rdr object
+save(rdr, file = "/Users/carla/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/results/radar_object_Norm.rda")
+```
+
+
+## Explore data in the rdr object 
 
 First we're going to explore the first `rdr` object created containing data for all the patients without filtering. In this case, `colnames` are equal to the name of the `tsv` for a given patient. In total, there are 2581:   
 

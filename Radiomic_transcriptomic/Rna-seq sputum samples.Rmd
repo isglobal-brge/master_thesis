@@ -42,14 +42,21 @@ library(EnhancedVolcano)
 library(factoextra)
 library(FactoMineR)
 library(clusterProfiler)
+# For ggpar function
+library(ggpubr)
+library(gridExtra)
+library(cowplot)
+library(enrichplot)
+library(annotate)
+library(hgu133plus2.db)
 ```
 
 ## Loading data  
 
 ```{r load_rdr}
-#load("/Users/carlacasanovasuarez/Documents/Prácticas Radiomics/Radiomic features/Results_rfeatures/radar_L1_Norm_adjusted_min_PCA_final.rda")
+#load("/Users/carlacasanovasuarez/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/radar_L1_Norm_scaled_adjusted_min_int_center_final.rda")
 
-load("/Users/carlacasanovasuarez/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/radar_L1_Norm_scaled_adjusted_min_int_center_final.rda")
+load("/Users/carlacasanovasuarez/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/radar_L1_Norm_scaled_adjusted_combat_final.rda")
 
 rdr_L1_final
 ```
@@ -130,7 +137,7 @@ counts <- exprs(sputum_eset_filt)
 
 # Phenotipic data
 # Retrieves the subjects’ phenotypes in an AnnotatedDataFrame object 
-pheno_blood <- phenoData(sputum_eset_filt)
+pheno_sputum <- phenoData(sputum_eset_filt)
 # pData() converts the phenotipic data to a data frame 
 phenoDataFrame <- pData(sputum_eset_filt)
 
@@ -186,12 +193,12 @@ colSums(counts, na.rm=TRUE)
 
 ```{r library_size}
 # Number of reads in that sample (library size)
-lib.size <- colSums(counts, na.rm = TRUE)
+lib.size = colSums(counts, na.rm = TRUE)
 
-barplot(lib.size, names = colnames(counts))
-mtext(side = 1, text = "Samples", line = 4)
-mtext(side = 2, text = "Library size (millions)", line = 3)
-title("Barplot of library sizes")
+barplot(lib.size, names = colnames(counts)) 
+mtext(side = 1, text = "Samples", line = 4) 
+mtext(side = 2, text = "Library size (millions)", line = 3) 
+title("Barplot of library sizes of sputum samples")
 ```
 
 ### Gene selection  
@@ -217,9 +224,9 @@ y = DGEList(counts=counts.ok, group = group)
 # Check rows of clinical data and DGEList object before adding more variables
 identical(rownames(y$samples), rownames(phenoDataFrame))
 identical(rownames(y), rownames(counts.ok))
-y$samples$Stage <- phenoDataFrame$GROUP_bin
-y$samples$Cough <- phenoDataFrame$COUGH
-y$samples$Sex <- phenoDataFrame$SEX
+#y$samples$Stage <- phenoDataFrame$GROUP_bin
+#y$samples$Cough <- phenoDataFrame$COUGH
+#y$samples$Sex <- phenoDataFrame$SEX
 
 # Filter genes 
 keep <- filterByExpr(y)
@@ -237,7 +244,7 @@ In this case, all the 40 genes were removed for the analysis.
 # Filter data frame with features information by removing genes that are not desired for the current analysis
 identical(rownames(counts.ok), rownames(annotation.sputum))
 filter_rows <- intersect(rownames(counts.ok), rownames(annotation.sputum))
-annotation.sputum.ok <- annotation.sputum[filter_rows,]
+annotation.sputum.ok <- as.data.frame(annotation.sputum[filter_rows,])
 identical(rownames(counts.ok), annotation.sputum.ok$PROBEID)
 
 rownames(annotation.sputum.ok) <- annotation.sputum.ok$PROBEID
@@ -246,13 +253,13 @@ rownames(annotation.sputum.ok) <- annotation.sputum.ok$PROBEID
 Save objects for future analyses using only sputum samples:  
 
 ```{r patients_sputum_rdr, eval=FALSE}
-save(rdr_assay, file = "/Users/carlacasanovasuarez/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/R objects/rdr_assay_scaled.rda")
+save(rdr_assay, file = "/Users/carlacasanovasuarez/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/R objects/rdr_assay_scaled_combat.rda")
 ```
 
 ```{r patients_sputum_eset, eval=FALSE}
-save(sputum_eset_filt, file = "/Users/carlacasanovasuarez/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/R objects/sputum_eset.rda")
+save(sputum_eset_filt, file = "/Users/carlacasanovasuarez/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/R objects/sputum_eset_filtered.rda")
 
-save(counts.ok, file = "/Users/carlacasanovasuarez/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/R objects/sputum_eset_countsOK.rda")
+save(counts.ok, file = "/Users/carlacasanovasuarez/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/R objects/sputum_eset_countsOK_Combat.rda")
 
 save(phenoDataFrame, file = "/Users/carlacasanovasuarez/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/R objects/sputum_eset_phenoOK.rda")
 
@@ -337,7 +344,9 @@ selectedGenes <- names(V[order(V, decreasing = TRUE)][1:500])
 
 # Perform PCA
 #pcaResults1 <- prcomp(t(counts.log[selectedGenes,]),scale = TRUE)
-pcaResults2 <- prcomp(t(counts.ok[selectedGenes,]),scale = TRUE)
+pcaResults2 <- PCA(t(counts.ok[selectedGenes,]),graph = FALSE)
+
+#load("pca genes sputum.rda")
 ```
 
 See explained varibility for each principal component:  
@@ -348,36 +357,85 @@ summary(pcaResults2)
 
 PCA for patients:  
 
-```{r PCA_patientient_genes_plot}
-qplot(pcaResults2$x[,1], pcaResults2$x[,2], xlab = "PC1", ylab = "PC2", main = "Scaled PCA of patients", colour = phenoDataFrame$GROUP_bin) + 
-  labs(colour = "Group")
+```{r PCA_patients_genes_plot}
+#pdf("PCA gene counts sputum by stage.pdf")
+#phenoDataFrame$SEX
+
+qplot(pcaResults2$ind$coord[,1], pcaResults2$ind$coord[,2], xlab = "PC1", ylab = "PC2", main = "Scaled PCA of patients with sputum samples", colour = phenoDataFrame$AGE) + 
+  labs(colour = "Age")
+
+#dev.off()
+```
+
+Adding ellipses:  
+
+```{r ellipses_gene_PCA}
+pPCA1 <- ggpar(fviz_pca_ind(pcaResults2,
+label = "none", # hide individual labels
+habillage = phenoDataFrame$GROUP_bin, # color by groups palette = c("#00AFBB", "#E7B800"),
+addEllipses = TRUE # Concentration ellipses
+), title = "Individuals with sputum samples colored by COPD stage", font.main = c(8, "plain", "black"), legend.title = "COPD stage", caption = "A", font.caption = c(12, "bold", "black"))
+
+pPCA2 <- ggpar(fviz_pca_ind(pcaResults2,
+label = "none", # hide individual labels
+habillage = as.factor(phenoDataFrame$SEX), # color by groups palette = c("#00AFBB", "#E7B800"),
+addEllipses = TRUE # Concentration ellipses
+), title = "Individuals with sputum samples colored by sex", font.main = c(8, "plain", "black"), legend.title = "Sex", caption = "B", font.caption = c(12, "bold", "black"))
+```
+
+Individuals contribution:  
+
+```{r ind_cont_gene_PCA}
+pPCA3 <- ggpar(fviz_pca_ind(pcaResults2, col.ind = "contrib",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE # Avoid text overlapping (slow if many points)
+             ), title = "Individuals with sputum samples colored by contribution (%)", font.main = c(7, "plain", "black"), caption = "C", font.caption = c(12, "bold", "black"))
+```
+
+Final plot:  
+
+```{r ind_final_plot_gene_PCA}
+#pAll <- plot_grid(pPCA1, NULL, pPCA2, pPCA3, labels=c("A", "", "B", "C"), ncol = 2, rel_widths = c(3, 4))
+
+pAll <- grid.arrange(pPCA1, pPCA2, pPCA3, ncol = 2, 
+             layout_matrix = rbind(c(1,2), c(3,3)))
+
+ggsave("PCA sputum individuals.pdf",pAll, width=6, height=6, units="cm", scale=3.5)
 ```
 
 PCA for genes:  
 
 ```{r PCA_genes_plot}
-qplot(pcaResults2$rotation[,1], pcaResults2$rotation[,2], xlab = "PC1", ylab = "PC2", main = "Scaled PCA of genes")
+qplot(pcaResults2$var$coord[,1], pcaResults2$var$cor[,2], xlab = "PC1", ylab = "PC2", main = "Scaled PCA of genes")
 ```
+
+MDS plots:  
 
 ```{r plot_MDS}
-color.gr <- ifelse(phenoDataFrame$GROUP_bin=="Moderate", "blue", "coral")
+color.gr <- ifelse(phenoDataFrame$GROUP_bin=="Moderate", "orange", "purple")
 color.cough <- ifelse(phenoDataFrame$COUGH=="Chronic cough", "red", "green")
 color.sex <- ifelse(phenoDataFrame$SEX=="F", "orange", "purple")
+#color.sex <- ifelse(phenoDataFrame$SEX=="F","blue", "coral")
+
+pdf("MDS plots sputum.pdf")
+par(mfrow=c(2,1))
 
 plotMDS(y, col= color.gr)
-legend("topleft",fill=c("blue","coral"),legend=levels(phenoDataFrame$GROUP_bin))
-title("Stage")
+legend("bottomright",fill=c("orange", "purple"),legend=levels(phenoDataFrame$GROUP_bin))
+title("MDS plot of individuals with sputum samples by COPD stage")
 
-plotMDS(y, col= color.cough)
-legend("bottomleft",fill=c("red","green"),legend=levels(as.factor(phenoDataFrame$COUGH)))
-title("Cough")
+#plotMDS(y, col= color.cough)
+#legend("bottomleft",fill=c("red","green"),legend=levels(as.factor(phenoDataFrame$COUGH)))
+#title("Cough")
 
 plotMDS(y, col= color.sex)
-legend("topleft",fill=c("orange","purple"),legend=levels(as.factor(phenoDataFrame$SEX)))
-title("Sex")
+legend("bottomright",fill=c("orange","purple"),legend=levels(as.factor(phenoDataFrame$SEX)))
+title("MDS plot of individuals with sputum samples by sex")
+
+dev.off()
 ```
 
-As can be seen in the previous analysis, in this case patients are slightly stratified by COPD stage. Nevertheless, `Moderate` and `Severe` seem to be close stages since patients are almost mixed.
+As can be seen in the previous analysis, in this case patients are slightly stratified by COPD stage. Nevertheless, `Moderate` and `Severe` seem to be close stages regarding gene expression since patients are almost mixed. 
 
 Nevertheless, this does not mean that counts are not properly normalized. The **mean-difference plots** show average expression (mean: x-axis) against log-fold-changes (difference: y-axis). Imagine that counts have been normalized just **by library size, but not for composition bias**. Which is translated to the fact that TMM normalization factors have been not computed. Counts would be displayed asymmetrically over or undo the horizontal line (one side bigger than the another).
 
@@ -422,14 +480,14 @@ mypalette <- brewer.pal(11,"PiYG")
 morecols <- colorRampPalette(mypalette)
 
 # Select more variable genes (previously computed for PCA analysis)
-highly_variable_lcpm <- counts.log[selectedGenes,]
+highly_variable_lcpm <- counts.ok[selectedGenes,]
 ```
 
 ```{r plot_heatmap}
 #pdf("heatmap_sputum.pdf")
 
 # Plot heatmap
-aheatmap(highly_variable_lcpm,col=rev(morecols(50)),main="Top 500 most variable genes across samples",annCol=phenoDataFrame[,c("GROUP_bin", "SEX")],labCol=phenoDataFrame[,"GROUP_bin"], scale="row")
+aheatmap(highly_variable_lcpm,col=rev(morecols(50)),main="Top 500 most variable genes across sputum samples",annCol=phenoDataFrame[,c("GROUP_bin", "SEX")],labCol=phenoDataFrame[,"GROUP_bin"], scale="row")
 
 #dev.off()
 ```
@@ -446,89 +504,129 @@ rdr_pca_filt <- rdr_assay
 rownames(rdr_pca_filt) <- substr(rownames(rdr_pca_filt), start = 1, stop =  nchar(rownames(rdr_pca_filt))-9)
 
 # Store 15 first dimensions
-res.pca <- PCA(t(rdr_pca_filt), ncp = 15, graph = FALSE)
+res.pca <- PCA(t(rdr_pca_filt), ncp = 22, graph = FALSE)
 ```
 
-Top variables contribution:  
+Top **variables representation (cos2)**:     
 
 ```{r var}
-#pdf("Contribution variables PCA patients.pdf")
+#pdf("Representation of radiomic features in PCs (top 5).pdf")
 
 # Graph of variables: default plot
-fviz_pca_var(res.pca, col.var="contrib",
+fviz_pca_var(res.pca, col.var="cos2",
              gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
-             select.var = list(contrib = 5),
+             geom = c("arrow", "text"),
+             #select.var = list(cos2 = 5),
+             title = "Representation of radiomic features in PC1 and PC2",
              repel = TRUE) # Avoid text overlapping
 
 #dev.off()
 ```
 
-See which features are contributing the most per dimension:  
+See which features are **contributing** the most per dimension:  
 
 ```{r contrib_var}
-#pdf("Contribution variables PC1-3.pdf")
+#pdf("Contribution variables in PCs with DE genes (ComBat).pdf")
 
 # Contributions of variables to PC1
-fviz_contrib(res.pca, choice = "var", axes = 1, top = 10)
+ggpar(fviz_contrib(res.pca, choice = "var", axes = 1, top = 10, ggtheme = theme_classic()), x.text.angle=90)
 # Contributions of variables to PC2
-fviz_contrib(res.pca, choice = "var", axes = 2, top = 10)
+ggpar(fviz_contrib(res.pca, choice = "var", axes = 2, top = 10, ggtheme = theme_classic()), x.text.angle=90)
 # Contributions of variables to PC3
-fviz_contrib(res.pca, choice = "var", axes = 3, top = 10)
+ggpar(fviz_contrib(res.pca, choice = "var", axes = 3, top = 10, ggtheme = theme_classic()),x.text.angle=90)
 
 #dev.off()
 ```
 
-See individuals that are contributing the most to the analysis:  
+See explained variability:  
+
+```{r explained_var}
+#pdf("Explained variability by dimension (radiomic features).pdf")
+
+fviz_screeplot(res.pca, ncp = 10, main = "Explained varibility of PCs with radiomic features")
+
+#dev.off()
+```
+
+Check for **cumulative % of variance** for each dimension:  
+
+```{r cumulative_pca}
+summary(res.pca)
+```
+
+See **individuals** that are contributing the most to the analysis:  
 
 ```{r individuals_graph}
-#pdf("Contribution individuals PCA.pdf")
+#pdf("Contribution individuals PCA (ComBat).pdf")
 
 # Graph of individuals
 # 1. Use repel = TRUE to avoid overplotting
-# 2. Control automatically the color of individuals using the cos2
-    # cos2 = the quality of the individuals on the factor map
-    # Use points only
-# 3. Use gradient color
-fviz_pca_ind(res.pca, col.ind = "cos2",
+# 2. Use gradient color
+ggpar(fviz_pca_ind(res.pca, col.ind = "contrib",
              gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
              repel = TRUE # Avoid text overlapping (slow if many points)
-             )
+             ), title = "Individuals colored by contribution (%) in PC1 and PC2")
 
 #dev.off()
 ```
 
+```{r PCA_ind_group}
+#pdf("Contribution individuals PCA by group (ComBat).pdf")
+
+ggpar(fviz_pca_ind(res.pca,
+label = "none", # hide individual labels
+habillage = phenoDataFrame$GROUP_bin, # color by groups palette = c("#00AFBB", "#E7B800"),
+addEllipses = TRUE # Concentration ellipses
+), title = "Individuals colored by group in PC1 and PC2")
+
+#dev.off()
+```
+
+
+
 ### Selection of variables  
+
+```{r predict_prob, eval=FALSE}
+set.seed(1234)
+
+rdr_assay.T <- as.data.frame(t(rdr_assay))
+identical(rownames(phenoDataFrame), rownames(rdr_assay.T))
+
+rdr_assay.T$GROUP <- phenoDataFrame$GROUP_bin
+#names(rdr_assay.T)[names(rdr_assay.T) == '10Percentile.original'] <- 'tenPercentile.original'
+#names(rdr_assay.T)[names(rdr_assay.T) == '90Percentile.original'] <- 'ninetyPercentile.original'
+
+#confusionMatrix(predict(m3, rdr_assay.T), rdr_assay.T$GROUP)
+#Probabilities
+#pred <- predict(m3, rdr_assay.T, type = "prob")
+
+ pred_real <- predict.gbm(object = model_gbm,
+                   newdata = rdr_assay.T,
+                   n.trees = 500,           # 500 tress to be built
+                   type = "response")
+  
+  #### Create a confusion matrix:
+  class_names <- colnames(pred_real)[apply(pred_real, 1, which.max)]
+  result <- data.frame(rdr_assay.T$GROUP, class_names)
+  conf_mat <- confusionMatrix(as.factor(rdr_assay.T$GROUP), as.factor(class_names))
+```
 
 Prepare a data frame with possible covariates and PCs:  
 
 ```{r selection_variables}
-#residual_volume = phenoDataFrame$RV,
-#SVC = phenoDataFrame$SVC,
-#TLC = phenoDataFrame$TLC,
-#FRC = phenoDataFrame$FRC,
-#Low_percentile = phenoDataFrame$LOW15PCT,
-#                                 PC2_rdr = rdr_colData$PC2,
-#                                 PC3_rdr = rdr_colData$PC3,
-#                                 PC4_rdr = rdr_colData$PC4,
-#                                 PC5_rdr = rdr_colData$PC5,
-#                                 PC6_rdr = rdr_colData$PC6,
-#                                 PC7_rdr = rdr_colData$PC7,
-#                                 PC8_rdr = rdr_colData$PC8,
-#                                 PC9_rdr = rdr_colData$PC9,
-#                                 PC10_rdr = rdr_colData$PC10,
-
-
 # Store values for for individuals from PCA analysis of radiomic features
 pca_ind <- get_pca_ind(res.pca)
 pca_values <- pca_ind$coord
 
-# Create a data frame with clinical variables to asses and PCs
+# Create a data frame with clinical variables to asses and PCs smaller than the original (select variables)
 variables_interest <- data.frame(Sex = as.factor(phenoDataFrame$SEX), 
-                                 Age = phenoDataFrame$AGE, 
+                                 Age = phenoDataFrame$AGE,
+                                 Country = as.factor(rdr_colData$COUNTRY),
                                  Dwalk = phenoDataFrame$DWALK,
                                  BMI = phenoDataFrame$BMI,
                                  Smoke_history = phenoDataFrame$SUSMHS,
                                  Years_smoke = phenoDataFrame$SUSMYR,
+                                 pack_years_smoke = phenoDataFrame$SUPKYR,
                                  Cough = as.factor(phenoDataFrame$COUGH),
                                  ex_first_year = phenoDataFrame$Y1EXBS,
                                  Group = as.factor(phenoDataFrame$GROUP_bin),
@@ -563,6 +661,13 @@ variables_interest <- data.frame(Sex = as.factor(phenoDataFrame$SEX),
                                  PC13_rdr = pca_values[,13],
                                  PC14_rdr = pca_values[,14],
                                  PC15_rdr = pca_values[,15],
+                                 PC16_rdr = pca_values[,16],
+                                 PC17_rdr = pca_values[,17],
+                                 #PC18_rdr = pca_values[,18],
+                                 #PC19_rdr = pca_values[,19],
+                                 #PC20_rdr = pca_values[,20],
+                                 #PC21_rdr = pca_values[,21],
+                                 #PC22_rdr = pca_values[,22],
                                  row.names = rownames(phenoDataFrame))
 
 # Code for removing columns with some NA
@@ -572,7 +677,7 @@ variables_interest <- variables_interest[ , apply(variables_interest, 2, functio
 variables.1.factor <- sapply(lapply(variables_interest, unique), length)
 names(variables.1.factor[variables.1.factor == 1])
 #display unique values for each variable
-lapply(variables_interest[c("Smoke_history", 'Sex', 'Cough')], unique)
+lapply(variables_interest[c("Smoke_history", 'Cough')], unique)
 # Remove variables with just one factor
 variables_interest[,"Smoke_history"] <- NULL
 
@@ -584,7 +689,8 @@ Perform automatic selection by using **forward stepwise regression**. Each gene 
 
 ```{r stepwise_counts_automatic}
 # Perform automatic stepwise regression: forward
-mod.fow <- stats::step(lm(t(countData) ~ ., data = variables_interest), trace = FALSE, direction = "forward")
+# Do not consider PCs 
+mod.fow <- stats::step(lm(t(countData) ~ ., data = variables_interest[,1:(ncol(variables_interest)-22)]), trace = FALSE, direction = "forward")
 
 # Store coefficients of the model in a long list (each gene is a model since we're looking counts)
 models.results <- summary(mod.fow)
@@ -602,14 +708,8 @@ head(models.p.values)
 variables.sig <- apply(models.p.values, 1, function(x) {any(x == TRUE)})
 table(variables.sig)
 
-not.sig.variables <- rownames(models.p.values[!variables.sig,])
+not.sig.variables <- which(variables.sig == FALSE)
 not.sig.variables
-```
-
-See variables that better explain differences between stages automatically (optional):  
-
-```{r group_variable}
-plot(regsubsets(Group ~ ., data = variables_interest, method = "exhaustive", nbest = 1))
 ```
 
 Functions for assessing linear models:  
@@ -639,19 +739,35 @@ mod.dsag <- lm(t(countData) ~ Group + Sex + Age + Dwalk, data = variables_intere
 mod.dag <- lm(t(countData) ~ Group + Age + Dwalk, data = variables_interest)
 mod.dsagf <- lm(t(countData) ~ Group + Sex + Age + Dwalk + FEV1PSPC, data = variables_interest)
 mod.dsagffd <- lm(t(countData) ~ Group + Sex + Age + Dwalk + FEV1PSPC + fume_expose + dusty_expose, data = variables_interest)
-mod.dsagffda <- lm(t(countData) ~ Group + Sex + Age + Dwalk + FEV1PSPC + fume_expose + dusty_expose + history_asthma, data = variables_interest)
-mod.pc1n2 <-  lm(t(countData) ~ PC1_rdr + PC2_rdr, data = variables_interest)
-mod.dsagffdapc1n2 <- lm(t(countData) ~ Group + Sex + Age + Dwalk + FEV1PSPC + fume_expose + dusty_expose + history_asthma + PC1_rdr + PC2_rdr, data = variables_interest)
+
+#mod.pc1n2 <-  lm(t(countData) ~ PC1_rdr + PC2_rdr, data = variables_interest)
+#mod.dsagffdapc1n2 <- lm(t(countData) ~ Group + Sex + Age + Dwalk + FEV1PSPC + fume_expose + dusty_expose + history_asthma + PC1_rdr + PC2_rdr, data = variables_interest)
+
 # Without Cough
-mod.dsagffdapc1n2 <- lm(t(countData) ~ Group + Sex + Age + Dwalk + FEV1PSPC + fume_expose + dusty_expose + history_asthma + PC1_rdr + PC2_rdr, data = variables_interest)
-# Without Dwalk and FEV1PSPC but Cough
-mod.sagfdacpc1n2 <- lm(t(countData) ~ Group + Sex + Age + fume_expose + dusty_expose + history_asthma + Cough + PC1_rdr + PC2_rdr, data = variables_interest)
-# ALL + 1 and 2 PC
-mod.dsagffdacpc1n2 <- lm(t(countData) ~ Group + Sex + Age + Dwalk + FEV1PSPC + fume_expose + dusty_expose + history_asthma + Cough + PC1_rdr + PC2_rdr, data = variables_interest)
+mod.dsagffda <- lm(t(countData) ~ Group + Sex + Age + Dwalk + FEV1PSPC + fume_expose + dusty_expose + history_asthma, data = variables_interest)
+
+# Backward Dwalk and FEV1PSPC but + Cough
+mod.sagfdac <- lm(t(countData) ~ Group + Sex + Age + fume_expose + dusty_expose + history_asthma + Cough, data = variables_interest)
+
+# ALL + Dwalk and FEV1PSPC
+mod.dsagffdac <- lm(t(countData) ~ Group + Sex + Age + Dwalk + FEV1PSPC + fume_expose + dusty_expose + history_asthma + Cough, data = variables_interest)
+
 # All + PCs
-mod.dsagffdacpc1.8 <- lm(t(countData) ~ Group + Sex + Age + Dwalk + FEV1PSPC + fume_expose + dusty_expose + history_asthma + Cough + PC1_rdr + PC2_rdr+ PC3_rdr + PC4_rdr+ PC5_rdr + PC6_rdr + PC7_rdr + PC8_rdr, data = variables_interest)
-# All + PCs + BMI +  Cr_wheezeng 
-mod.dsagffdacBWpc1.8 <- lm(t(countData) ~ Group + Sex + Age + Dwalk + FEV1PSPC + fume_expose + dusty_expose + history_asthma + Cough + BMI + Cr_wheezeng + PC1_rdr + PC2_rdr + PC3_rdr + PC4_rdr+ PC5_rdr + PC6_rdr + PC7_rdr + PC8_rdr, data = variables_interest)
+#mod.dsagffdacpc1.8 <- lm(t(countData) ~ Group + Sex + Age + Dwalk + FEV1PSPC + fume_expose + dusty_expose + history_asthma + Cough + PC1_rdr + PC2_rdr+ PC3_rdr + PC4_rdr+ PC5_rdr + PC6_rdr + PC7_rdr + PC8_rdr, data = variables_interest)
+
+# All + BMI +  Cr_wheezeng 
+mod.dsagffdacBW <- lm(t(countData) ~ Group + Sex + Age + Dwalk + FEV1PSPC + fume_expose + dusty_expose + history_asthma + Cough + BMI + Cr_wheezeng, data = variables_interest)
+
+# All + pack years + cardiac history
+mod.dsagffdacBWPKh <- lm(t(countData) ~ Group + Sex + Age + Dwalk + FEV1PSPC + fume_expose + dusty_expose + history_asthma + Cough + BMI + Cr_wheezeng + pack_years_smoke + heart_failure, data = variables_interest)
+
+# All + backward dusty
+mod.dsagffacBWPKh <- lm(t(countData) ~ Group + Sex + Age + Dwalk + FEV1PSPC + fume_expose + history_asthma + Cough + BMI + Cr_wheezeng + pack_years_smoke + heart_failure, data = variables_interest)
+
+# Choice model 
+mod.final <- lm(t(countData) ~ Sex + Age + BMI + pack_years_smoke, data = variables_interest)
+
+# All
 
 rmse(fitted(mod.s), t(countData))
 rmse(fitted(mod.sa), t(countData))
@@ -664,13 +780,14 @@ rmse(fitted(mod.dag), t(countData))
 rmse(fitted(mod.dsagf), t(countData))
 rmse(fitted(mod.dsagffd), t(countData))
 rmse(fitted(mod.dsagffda), t(countData))
-rmse(fitted(mod.pc1n2), t(countData))
-rmse(fitted(mod.dsagffdapc1n2), t(countData))
-rmse(fitted(mod.sagfdacpc1n2), t(countData))
-rmse(fitted(mod.dsagffdacpc1n2), t(countData))
-rmse(fitted(mod.dsagffdacpc1.8), t(countData))
+rmse(fitted(mod.sagfdac), t(countData))
+rmse(fitted(mod.dsagffdac), t(countData))
+
 # Best model
-rmse(fitted(mod.dsagffdacBWpc1.8), t(countData))
+rmse(fitted(mod.dsagffdacBW), t(countData))
+rmse(fitted(mod.dsagffdacBWPKh), t(countData))
+rmse(fitted(mod.dsagffacBWPKh), t(countData))
+rmse(fitted(mod.final), t(countData))
 ```
 
   
@@ -690,9 +807,16 @@ plot(phenoDataFrame$AGE,counts.ok["220610_s_at",])
 In this case, variables that want to be tested lately have to be protected from `sva` analysis in order to preserve the variability related with this known covariates. The null-model `mod0` can have all the desired variables of the model, but the one to **contrast** lately:  
 
 ```{r sva_avalysis}
+# PC1_rdr + PC2_rdr + PC3_rdr + PC4_rdr + PC5_rdr + PC6_rdr + PC7_rdr + PC8_rdr + PC9_rdr + PC10_rdr + PC11_rdr + PC12_rdr + PC13_rdr + PC14_rdr + PC15_rdr
+
+#  + PC16_rdr + PC17_rdr + PC18_rdr + PC19_rdr + PC20_rdr + PC21_rdr + PC22_rdr
+
+# Group + Sex + Age + Dwalk + FEV1PSPC + fume_expose + dusty_expose + history_asthma + Cough + BMI + Cr_wheezeng +
+# Group + Sex + Age + Dwalk + BMI + pack_years_smoke
+
 # Create a model with tumor stage as covariate and a null model
-mod1 <- model.matrix( ~ Group + Sex + Age + Dwalk + FEV1PSPC + fume_expose + dusty_expose + history_asthma + Cough + BMI + Cr_wheezeng + PC1_rdr + PC2_rdr + PC3_rdr + PC4_rdr + PC5_rdr + PC6_rdr + PC7_rdr + PC8_rdr + PC9_rdr + PC10_rdr + PC11_rdr + PC12_rdr + PC13_rdr + PC14_rdr + PC15_rdr, data=variables_interest)
-mod0 <- model.matrix( ~ Group + Sex + Age + Dwalk + FEV1PSPC + fume_expose + dusty_expose + history_asthma + Cough + BMI + Cr_wheezeng, data=variables_interest)
+mod1 <- model.matrix( ~ Sex + Age + BMI + Years_smoke + PC1_rdr + PC2_rdr + PC3_rdr + PC4_rdr + PC5_rdr + PC6_rdr + PC7_rdr + PC8_rdr + PC9_rdr + PC10_rdr + PC11_rdr + PC12_rdr + PC13_rdr + PC14_rdr + PC15_rdr + PC16_rdr + PC17_rdr, data=variables_interest)
+mod0 <- model.matrix( ~ Sex + Age + BMI + Years_smoke, data=variables_interest)
 
 # This estimates the required number of surrogate variables
 #countData <- counts.ok[rowSums(counts.ok) > 10, ]
@@ -715,8 +839,13 @@ First we need to create a **design matrix** for the groups (see the excellent li
 *Voom* will automatically adjust the library sizes using the `norm.factors` if calculated. We can add `plot=TRUE` to generate a plot of the **mean-variance trend**. This plot can also tell us if there are any genes that look really variable in our data, and if we’ve filtered the low counts adequately.  
 
 ```{r voom_normalize}
+# + PC1_rdr + PC2_rdr + PC3_rdr + PC4_rdr + PC5_rdr + PC6_rdr + PC7_rdr + PC8_rdr + PC9_rdr + PC10_rdr + PC11_rdr + PC12_rdr + PC13_rdr + PC14_rdr + PC15_rdr 
+#  + PC16_rdr + PC17_rdr + PC18_rdr + PC19_rdr + PC20_rdr + PC21_rdr + PC22_rdr
+
+# Group + Sex + Age + Dwalk + FEV1PSPC + fume_expose + dusty_expose + history_asthma + Cough + BMI + Cr_wheezeng + 
+
 # Normalize data with voom and add tumor stage as covariate in design 
-design <- model.matrix( ~ Group + Sex + Age + Dwalk + FEV1PSPC + fume_expose + dusty_expose + history_asthma + Cough + BMI + Cr_wheezeng + PC1_rdr + PC2_rdr + PC3_rdr + PC4_rdr + PC5_rdr + PC6_rdr + PC7_rdr + PC8_rdr + PC9_rdr + PC10_rdr + PC11_rdr + PC12_rdr + PC13_rdr + PC14_rdr + PC15_rdr + V1 + V2 + V3 + V4 + V5 + V6 + V7 + V8 + V9 + V10 + V11 + V12 + V13 + V14 + V15 + V16 + V17, data=variables_interest_sva)
+design <- model.matrix( ~ Sex + Age + BMI + Years_smoke + PC1_rdr + PC2_rdr + PC3_rdr + PC4_rdr + PC5_rdr + PC6_rdr + PC7_rdr + PC8_rdr + PC9_rdr + PC10_rdr + PC11_rdr + PC12_rdr + PC13_rdr + PC14_rdr + PC15_rdr + PC16_rdr + PC17_rdr + V1 + V2 + V3 + V4 + V5 + V6 + V7 + V8 + V9 + V10 + V11 + V12 + V13 + V14 + V15 + V16 + V17, data=variables_interest_sva)
 v <- voom(counts.ok, design=design, plot=TRUE)
 ```
 
@@ -752,34 +881,34 @@ summary(summa.fit)
 p.val.voom <- as.data.frame(fit$p.value)
 
 # P-value distribution of results computed by limma
-ggplot(data = p.val.voom, aes(x = PC2_rdr)) +
-geom_histogram(bins = 100)
-
-# P-value distribution of results computed by limma
 ggplot(data = p.val.voom, aes(x = PC4_rdr)) +
-geom_histogram(bins = 100)
-
-# P-value distribution of results computed by limma
-ggplot(data = p.val.voom, aes(x = PC8_rdr)) +
 geom_histogram(bins = 100)
 
 # P-value distribution of results computed by limma
 ggplot(data = p.val.voom, aes(x = PC9_rdr)) +
 geom_histogram(bins = 100)
+
+# P-value distribution of results computed by limma
+ggplot(data = p.val.voom, aes(x = PC11_rdr)) +
+geom_histogram(bins = 100)
+
+# P-value distribution of results computed by limma
+ggplot(data = p.val.voom, aes(x = PC15_rdr)) +
+geom_histogram(bins = 100)
 ```
 
 ```{r pvalue_QQplot_Voom}
 # QQplot plot for p-values computed by limma
-GWASTools::qqPlot(p.val.voom$PC2_rdr)
-
-# QQplot plot for p-values computed by limma
 GWASTools::qqPlot(p.val.voom$PC4_rdr)
 
 # QQplot plot for p-values computed by limma
-GWASTools::qqPlot(p.val.voom$PC8_rdr)
+GWASTools::qqPlot(p.val.voom$PC9_rdr)
 
 # QQplot plot for p-values computed by limma
-GWASTools::qqPlot(p.val.voom$PC9_rdr)
+GWASTools::qqPlot(p.val.voom$PC11_rdr)
+
+# QQplot plot for p-values computed by limma
+GWASTools::qqPlot(p.val.voom$PC15_rdr)
 ```
 
 ### Studying differential expression of one effect  
@@ -808,48 +937,158 @@ EnhancedVolcano(groupSevere, lab = rownames(groupSevere),
 
 #### PC2_rdr  
 
-```{r contrast_rf_pc2}
+```{r contrast_rf_PC2}
 groupPC2 <- topTable(fit, number = dim(counts.ok)[1], coef="PC2_rdr")
 groupPC2 <- groupPC2[order(groupPC2$P.Value),]
 head(groupPC2)
 ```
 
 ```{r volcano_rf_pc2, fig.align='center', fig.height=8}
-EnhancedVolcano(groupPC2, lab = rownames(groupPC2), 
+labels.PC2 <- ifelse(annotation.sputum.ok[rownames(groupPC2),"SYMBOL"] != "", annotation.sputum.ok[rownames(groupPC2),"SYMBOL"], rownames(groupPC2))
+
+volcano2 <- EnhancedVolcano(groupPC2, lab = labels.PC2, 
                 x = 'logFC',
-                y = 'P.Value', ylim=c(0,20),
+                y = 'P.Value', ylim=c(0,10),
                 pCutoff = 10e-5,
                 FCcutoff = 0.05,
                 pointSize = 3.0,
-                labSize = 6.0)
+                labSize = 4.0,
+                title = "Genes from sputum DE in PC2 with relaxed p-value (10e-5)",
+                titleLabSize = 20)
 ```
 
 #### PC4_rdr  
 
-```{r contrast_rf_PC4}
+```{r contrast_rf_pc4}
 groupPC4 <- topTable(fit, number = dim(counts.ok)[1], coef="PC4_rdr")
 groupPC4 <- groupPC4[order(groupPC4$P.Value),]
 head(groupPC4)
 ```
 
 ```{r volcano_rf_pc4, fig.align='center', fig.height=8}
-EnhancedVolcano(groupPC4, lab = rownames(groupPC4), 
+labels.PC4 <- ifelse(annotation.sputum.ok[rownames(groupPC4),"SYMBOL"] != "", annotation.sputum.ok[rownames(groupPC4),"SYMBOL"], rownames(groupPC4))
+
+volcano4 <- EnhancedVolcano(groupPC4, lab = labels.PC4, 
                 x = 'logFC',
-                y = 'P.Value', ylim=c(0,10),
+                y = 'P.Value', ylim=c(0,20),
                 pCutoff = 10e-5,
                 FCcutoff = 0.05,
                 pointSize = 3.0,
-                labSize = 6.0)
+                labSize = 4.0,
+                title = "Genes from sputum DE in PC4 with relaxed p-value (10e-5)",
+                titleLabSize = 20)
 ```
+
+#### PC9_rdr  
+
+```{r contrast_rf_pc9}
+groupPC9 <- topTable(fit, number = dim(counts.ok)[1], coef="PC9_rdr")
+groupPC9 <- groupPC9[order(groupPC9$P.Value),]
+head(groupPC9)
+```
+
+```{r volcano_rf_pc9, fig.align='center', fig.height=8}
+labels.PC9 <- ifelse(annotation.sputum.ok[rownames(groupPC9),"SYMBOL"] != "", annotation.sputum.ok[rownames(groupPC9),"SYMBOL"], rownames(groupPC9))
+
+volcano9 <- EnhancedVolcano(groupPC9, lab = labels.PC9, 
+                x = 'logFC',
+                y = 'P.Value', ylim=c(0,20),
+                pCutoff = 10e-5,
+                FCcutoff = 0.05,
+                pointSize = 3.0,
+                labSize = 4.0,
+                title = "Genes from sputum DE in PC9 with relaxed p-value (10e-5)",
+                titleLabSize = 20)
+```
+
+
+#### PC11_rdr  
+
+```{r contrast_rf_pc11}
+groupPC11 <- topTable(fit, number = dim(counts.ok)[1], coef="PC11_rdr")
+groupPC11 <- groupPC11[order(groupPC11$P.Value),]
+head(groupPC11)
+```
+
+```{r volcano_rf_pc11, fig.align='center', fig.height=8}
+labels.PC11 <- ifelse(annotation.sputum.ok[rownames(groupPC11),"SYMBOL"] != "", annotation.sputum.ok[rownames(groupPC11),"SYMBOL"], rownames(groupPC11))
+
+volcano11 <- EnhancedVolcano(groupPC11, lab = labels.PC11, 
+                x = 'logFC',
+                y = 'P.Value', ylim=c(0,20),
+                pCutoff = 10e-5,
+                FCcutoff = 0.05,
+                pointSize = 3.0,
+                labSize = 4.0,
+                title = "Genes from sputum DE in PC11 with relaxed p-value (10e-5)",
+                titleLabSize = 20)
+```
+
+#### PC14_rdr  
+
+```{r contrast_rf_pc14}
+groupPC14 <- topTable(fit, number = dim(counts.ok)[1], coef="PC14_rdr")
+groupPC14 <- groupPC14[order(groupPC14$P.Value),]
+head(groupPC14)
+```
+
+```{r volcano_rf_pc14, fig.align='center', fig.height=8}
+labels.PC14 <- ifelse(annotation.sputum.ok[rownames(groupPC14),"SYMBOL"] != "", annotation.sputum.ok[rownames(groupPC14),"SYMBOL"], rownames(groupPC14))
+
+volcano14 <- EnhancedVolcano(groupPC14, lab = labels.PC14, 
+                x = 'logFC',
+                y = 'P.Value', ylim=c(0,20),
+                pCutoff = 10e-5,
+                FCcutoff = 0.05,
+                pointSize = 3.0,
+                labSize = 4.0,
+                title = "Genes from sputum DE in PC14 with relaxed p-value (10e-5)",
+                titleLabSize = 20)
+```
+
+
+#### PC15_rdr  
+
+```{r contrast_rf_pc15}
+groupPC15 <- topTable(fit, number = dim(counts.ok)[1], coef="PC15_rdr")
+groupPC15 <- groupPC15[order(groupPC15$P.Value),]
+head(groupPC15)
+```
+
+```{r volcano_rf_pc15, fig.align='center', fig.height=8}
+labels.PC15 <- ifelse(annotation.sputum.ok[rownames(groupPC15),"SYMBOL"] != "", annotation.sputum.ok[rownames(groupPC15),"SYMBOL"], rownames(groupPC15))
+
+volcano15 <- EnhancedVolcano(groupPC15, lab = labels.PC15, 
+                x = 'logFC',
+                y = 'P.Value', ylim=c(0,20),
+                pCutoff = 10e-5,
+                FCcutoff = 0.05,
+                pointSize = 3.0,
+                labSize = 4.0,
+                title = "Genes from sputum DE in PC15 with relaxed p-value (10e-5)",
+                titleLabSize = 20)
+```
+
+
+Plot all volcanos:  
+
+```{r all_volcano}
+volcanoAll_ann <- plot_grid(volcano2, volcano11, volcano14, volcano15, labels=c("A", "B", "C", "D"), ncol = 2, label_size = 20)
+volcano_rest <- plot_grid(volcano4, volcano9, labels=c("E", "F"), ncol = 2, label_size = 20)
+
+ggsave("Volcano plots sputum annotated genes.pdf", volcanoAll_ann, width=10, height=9, units="cm", scale=6)
+ggsave("Volcano plots sputum rest.pdf", volcano_rest, width=8, height=5, units="cm", scale=6)
+```
+
 
 ## Enrichment  
 
 Store gene names of the data set with genes DE:  
 
-```{r differentially_expressed_pc4}
+```{r differentially_expressed_pc11}
 # Store genes with p.adjusted lesser than 0.01 (highly significant)
-mask <- groupPC4$adj.P.Val < 0.01 & !is.na(groupPC4$adj.P.Val)
-deGenes <- rownames(groupPC4[mask, ]) 
+mask <- groupPC11$adj.P.Val < 0.05 & !is.na(groupPC11$adj.P.Val)
+deGenes <- rownames(groupPC11[mask, ]) 
 
 # Check differentially expressed genes
 head(deGenes)
@@ -858,16 +1097,43 @@ length(deGenes)
 
 Do we have information about these genes?
 
-```{r anno_check_pc4}
+```{r anno_check_pc11}
 annotation.sputum.ok[deGenes,]
 ```
 
 Trying another one:  
 
-```{r differentially_expressed_pc2}
+```{r differentially_expressed_pc15}
 # Store genes with p.adjusted lesser than 0.01 (highly significant)
-mask <- groupPC2$adj.P.Val < 0.04 & !is.na(groupPC2$adj.P.Val)
-deGenes <- rownames(groupPC2[mask, ]) 
+mask <- groupPC15$adj.P.Val < 0.05 & !is.na(groupPC15$adj.P.Val)
+deGenes <- rownames(groupPC15[mask, ]) 
+
+# Check differentially expressed genes
+head(deGenes)
+length(deGenes)
+
+# Check info 
+annotation.sputum.ok[deGenes,]
+```
+
+
+```{r differentially_expressed_pc15}
+# Store genes with p.adjusted lesser than 0.01 (highly significant)
+mask <- groupPC8$adj.P.Val < 0.05 & !is.na(groupPC8$adj.P.Val)
+deGenes <- rownames(groupPC8[mask, ]) 
+
+# Check differentially expressed genes
+head(deGenes)
+length(deGenes)
+
+# Check info 
+annotation.sputum.ok[deGenes,]
+```
+
+```{r differentially_expressed_pc15}
+# Store genes with p.adjusted lesser than 0.01 (highly significant)
+mask <- groupPC14$adj.P.Val < 0.05 & !is.na(groupPC14$adj.P.Val)
+deGenes <- rownames(groupPC14[mask, ]) 
 
 # Check differentially expressed genes
 head(deGenes)
@@ -880,7 +1146,7 @@ annotation.sputum.ok[deGenes,]
 Store gene names of all the data set:  
 
 ```{r gene_universe}
-geneUniverse <- rownames(groupPC2[!is.na(groupPC2$P.Value), ]) 
+geneUniverse <- rownames(groupPC11[!is.na(groupPC11$P.Value), ]) 
 length(geneUniverse)
 ```
 
@@ -921,7 +1187,7 @@ ans.kegg <- enrichKEGG(gene = deGenes.entrez,
                        organism = 'hsa',
                        pvalueCutoff = 0.05) 
 
-# See results
+FOX# See results
 tab.kegg <- as.data.frame(ans.kegg@result)
 #tab.kegg<- subset(tab.kegg, Count>5) 
 tab.kegg[1:5, 1:6]
@@ -983,15 +1249,17 @@ tab.tf[1:5,1:5]
 ```
 
 
-Plot significant enrichments:  
+Plot significant enrichments in PC15:  
 
 ```{r PC_enrichment_plots, eval=FALSE}
+library(enrichplot)
+
 # GO
 dotplot(ans.go, showCategory=20) + ggtitle("GO PC2") 
 
 # KEGG
-#x2 <- pairwise_termsim(ans.kegg.fo) 
-#emapplot(x2)
+x2 <- pairwise_termsim(ans.kegg) 
+emapplot(x2)
 
 # Disgenet plot() function only displays diseases from ratios > 0.4. 
 #plot(res_enrich, class = "Enrichment",  cutoff= 0.05) 

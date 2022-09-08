@@ -1,0 +1,488 @@
+---
+title: "Eset"
+author: "Carla Casanova"
+date: "5/23/2022"
+output: pdf_document
+header-includes:
+  - |
+    ```{=latex}
+    \usepackage{fvextra}
+    \DefineVerbatimEnvironment{Highlighting}{Verbatim}{
+      breaksymbolleft={}, 
+      showspaces = false,
+      showtabs = false,
+      breaklines,
+      commandchars=\\\{\}
+    }
+    ```
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r libraries}
+library(dplyr)
+library(Biobase)
+library(tidyverse)
+library(SummarizedExperiment)
+```
+
+## Loading data  
+
+```{r load_rdr}
+#load("/Users/carlacasanovasuarez/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/radar_L1_Norm_scaled_adjusted_min_int_center.rda")
+
+load("/Users/carlacasanovasuarez//Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/radar_L1_Norm_scaled_adjusted_combat.rda")
+
+rdr_filt_original_new_com
+```
+
+```{r load_transcriptomic_data}
+expression <- read.delim("/Users/carlacasanovasuarez//Downloads/wetransfer_barcelona_20141114_contents-csv_2022-05-11_1044/blood_de.txt", header = TRUE, sep = "\t")
+
+expression2 <- read.delim("/Users/carlacasanovasuarez//Downloads/wetransfer_barcelona_20141114_contents-csv_2022-05-11_1044/sputum_de.txt", header = TRUE, sep = "\t")
+
+pheno <- read.csv("/Users/carlacasanovasuarez//Downloads/wetransfer_barcelona_20141114_contents-csv_2022-05-11_1044/barcelona_20141114_data.csv")
+
+# Table with the De_identified ID
+table_ids <-  read.csv("/Users/carlacasanovasuarez/Downloads/BCN_array.csv", sep = ",")
+table_ids2 <- separate(table_ids, col=1,into=c("indv","SUBJID","D_SUBJID","CENTREID","SUBJECT_ID","De_identified"),sep=",")
+```
+
+
+## Storing D_SUBJID in RadAR object  
+In the current work, there are two different IDs available. One has been used to identify **images** and the another one for **transcriptomics**, which are `SUBJID` and `D_SUBJID` respectively. So, let's add to `rdr` object the `D_SUBJID` to ease identification in both objects since it only has available `SUBJID`. To do this, the table from `BCN_array.csv` is going to be used to allow ID conversion.  
+
+In order to check possible errors, save a data frame containing only `D_SUBJID` and `SUBJID` of patients that are present in `rdr` and the table with conversions:  
+
+```{r patients_genes}
+# Filter rdr using SUBJID to create a boolean expression to check patients who have conversion ID
+patients_to_filter <- colData(rdr_filt_original_new_com)$SUBJID %in% table_ids2$SUBJID
+rdr_L1_final <- rdr_filt_original_new_com[,patients_to_filter]
+
+# Use patients SUBJID in rownames of table with conversions and colnames of rdr (avoid eclipse ID)
+rownames(table_ids2) <- table_ids2$SUBJID
+colnames(rdr_L1_final) <- colData(rdr_L1_final)$SUBJID
+
+# Check patients shared between the table with ID conversion and RadAR object using SUBJID
+commonRadAR <- intersect(rownames(table_ids2), colnames(rdr_L1_final))
+
+# Get De_identified IDs for patients within the RadAR object
+# Put IDs as character, otherwise it will take IDs as number of row
+ids_D_RadAR <- table_ids2[as.character(commonRadAR),]$De_identified
+
+# Create a data frame with two different IDs for each patient
+id.df <- data.frame(SUBJID = commonRadAR, D_SUBJID = ids_D_RadAR, stringsAsFactors=FALSE)
+rownames(id.df) <- id.df$SUBJID
+```
+
+Now, let's add the `D_SUBJID` to the `rdr` object:  
+
+```{r filter_rdr_L1}
+# Check order of columns between transcriptomic patients and rdr by using SUBJID
+identical(colnames(rdr_L1_final), rownames(id.df))
+
+# Fix order of individuals in rdr object and the data frame with conversion IDs
+ordered_SUBJID <- intersect(colnames(rdr_L1_final), rownames(id.df))
+id.df2 <- id.df[ordered_SUBJID,]
+identical(colnames(rdr_L1_final), rownames(id.df2))
+
+# Add ordered D_SUBJID to identify patients in transcriptomic set and rdr
+colData(rdr_L1_final) <- cbind(colData(rdr_L1_final), D_SUBJID = id.df2$D_SUBJID) 
+
+# Check RadAR object
+rdr_L1_final
+```
+
+
+```{r save_rdr_L1_filt, eval=FALSE}
+# Use the original ECLIPSE ID of rdr object as colnames before exporting
+colnames(rdr_L1_final) <- colData(rdr_L1_final)$id
+
+# Save an rdr object for L1 patients including D_SUBJID
+#save(rdr_L1_final, file = "/Users/carlacasanovasuarez/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/radar_L1_Norm_scaled_adjusted_min_int_center_final.rda")
+
+save(rdr_L1_final, file = "/Users/carlacasanovasuarez/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/radar_L1_Norm_scaled_adjusted_combat_final.rda")
+```
+
+## Checking patients with radiomic features and transcriptomic data available  
+Before creating the `eset` object, check how many patients are shared between the `RadAR` object containing radiomic features and the transcriptomic data:  
+
+```{r check_transcriptomic_radar}
+# Save patients names in transcriptomic data frame
+#patients <- unique(expression$De_identified)
+patients2 <- unique(expression2$De_identified)
+
+# See patients with both: radiomic features and transcriptomic data. The result are the D_SUBJID for common patients
+# Put IDs as character, otherwise it will take IDs as number of row
+common_transcrip <- as.character(intersect(patients2, ids_D_RadAR))
+```
+
+
+## Create matrix with transcriptomic results  
+First, should be highlighted that there are two columns with transcriptomic data. `COL1` contains genes counts after RPKM normalization. In addition, `logsignal` would be the log transformation of these counts:
+
+```{r check_transcriptomic_data}
+dd <- filter(expression, gene == genes[1])
+
+# As can be spotted COL1 are normalized counts and logsignal would be a log transformation
+plot(dd$COL1, dd$logsignal)
+```
+
+### Gene matrix  
+Once everything has been checked, let's start to create the gene expression matrix that will be used for the `eset` object:  
+
+```{r save_patientes_genes}
+# Save patients and genes names for blood file
+#patients <- unique(expression$De_identified)
+#genes <- unique(expression$gene)
+
+# Save patients and genes names for sputum file
+patients2 <- unique(expression2$De_identified)
+genes <- unique(expression2$Name)
+```
+
+Gene matrix can be computed using a function from `tidyverse`, where `id_cols` parameter is the column that uniquely identifies each observation and `id_expand` parameter allows the output to have a complete expansion of all possible values in the previous column:  
+
+```{r tidy_wide_table}
+# From long to wide table with genes in columns and patients in rows 
+assay <- pivot_wider(expression, id_cols = De_identified, names_from = gene, values_from = COL1, id_expand = TRUE) 
+
+# De_identified should be removed to transpose properly, but IDs have to be used as rownames
+gene.matrix <- as.data.frame(assay)
+rownames(gene.matrix) <- assay$De_identified
+gene.matrix$De_identified <- NULL
+
+# Transpose to have genes as rows and IDs as columns
+gene.matrix <- t(gene.matrix)
+head(gene.matrix)
+```
+
+In this case, the `assay` object was computed on the cluster. So, let's load the final object. On the one hand, there is a gene matrix corresponding to blood samples:  
+
+```{r load_gm_blood}
+# This gene matrix correspond to blood samples
+load("/Users/carlacasanovasuarez/Downloads/wetransfer_barcelona_20141114_contents-csv_2022-05-11_1044/gene_matrix_blood.rda")
+
+head(assay, 3)
+```
+
+```{r load_gm_sputum}
+# This gene matrix correspond to sputum samples
+load("/Users/carlacasanovasuarez/Downloads/wetransfer_barcelona_20141114_contents-csv_2022-05-11_1044/gene_matrix_sputum.rda")
+
+head(result_mod, 3)
+```
+
+### Pheno data and gene matrix  
+Now, we need to check which patients have both expression and phenotipic data in order to filter both data frames with the same patients:  
+
+```{r pheno_check}
+# Check common patients with clinical data available
+rownames(pheno) <- pheno$D_SUBJID
+
+# Blood gene matrix
+common_clinical <- as.character(intersect(colnames(assay), rownames(pheno)))
+
+# Sputum gene matrix
+#common_clinical <- as.character(intersect(colnames(result_mod), rownames(pheno)))
+
+# Filter pheno data frame for selected patients
+pheno_filt <- pheno[common_clinical,]
+
+# Not common
+not_common <- !(common_transcrip %in% common_clinical)
+not_common_IDs <- common_transcrip[not_common]
+```
+
+Now, gene matrix has to be also filtered for having those patients with `pheno` data. In this case, **only blood dataset was filtered** since 12 patients did not had clinical data:  
+
+```{r filter_gene_matrix}
+# Let's filter the gene matrix object for patients that have clinical data available
+assay_filt <- gene.matrix[,common_clinical]
+
+dim(assay_filt)
+```
+
+Finally, add clinical data to `pheno` data frame which was not present, such as `Group` variable. It can be retrieved from the `expression` data frame (transcriptomic data):  
+
+```{r clinical_expression}
+# Retrieve clinical information from the file with transcriptomic data
+#clinical_data <- data.frame(patients,
+#                    stringsAsFactors=FALSE)
+clinical_data <- data.frame(patients = patients2,
+                    stringsAsFactors=FALSE)
+
+# Add columns with clinical data
+#clinical_data$Group <- ifelse(patients %in% expression$De_identified, expression$Group, NA)
+#clinical_data$Age <- ifelse(patients %in% expression$De_identified, expression$Age, NA)
+#clinical_data$Sex <- ifelse(patients %in% expression$De_identified, expression$Sex, NA)
+clinical_data$Group <- ifelse(patients2 %in% expression2$De_identified, expression2$Group, NA)
+clinical_data$Age <- ifelse(patients2 %in% expression2$De_identified, expression2$AGE, NA)
+clinical_data$Sex <- ifelse(patients2 %in% expression2$De_identified, expression2$SEX, NA)
+
+# Change rownames to the previous object
+rownames(clinical_data) <- clinical_data$patients
+clinical_data$patients <- NULL
+
+# Filter also this data frame prior to add clinical information to pheno data
+clinical_data_filt <- clinical_data[common_clinical,]
+
+# Add the desired clinical information to the pheno data frame
+pheno_new <- pheno_filt %>%
+  mutate(GROUP = clinical_data_filt$Group)
+```
+
+### Annotation  
+In this case, genes are annotated following the **Affymetrix human microarray chips**. I am going to install this database with `Bioconductor`:  
+
+```{r install_db}
+# This code allows to download any data base by using Bioconductor
+#BiocManager::install("hgu133plus2.db")
+```
+
+First, let's load the desired data base once it has been installed:  
+
+```{r load_libraries}
+library(annotate)
+library(hgu133plus2.db)
+```
+
+You can check in this example the annotation provided by this data base for one gene from the gene matrix previously created:  
+
+```{r db_example}
+# This is one gene name (if want multiple use mget)
+get("1007_s_at", envir=hgu133plus2GENENAME)
+
+# This is all the information provided by the data base
+columns(hgu133plus2.db)
+```
+
+### Blood  
+So, let's create a `featureData` object, which is an optional `AnnotatedDataFrame` containing information about each feature (genes). So, it will have the same number of rows as the gene matrix:  
+
+```{r feature_data_blood}
+# Create a data frame with annotation by selecting available columns from a specific data base 
+annotation.df.blood <- AnnotationDbi::select(
+  x       = hgu133plus2.db,
+  keys    = rownames(assay_filt),
+  columns = c("PROBEID", "ENSEMBL", "ENTREZID", "SYMBOL", "GENENAME", "GO","GENETYPE"),
+  keytype = "PROBEID"
+  )
+
+# Check number of rows from original data and annotated data frame
+dim(assay_filt)
+dim(annotation.df.blood)
+```
+
+```{r check_annotation}
+# Check that there is at least one row in the annotations for each probe-id in the array dataset
+all(rownames(assay_filt) %in% annotation.df.blood$PROBEID)
+
+# Check how many IDs are duplicated
+dup.ids <- annotation.df.blood$PROBEID[duplicated(annotation.df.blood$PROBEID)] %>% 
+  unique %>%
+  sort
+
+
+# Create a data frame of one row per feature annotation containing annotations
+
+# This function allows to collapse info with the following output:
+# [1] "Lypla1|Tcea1"
+collapser <- function(x){
+  x %>% unique %>% sort %>% paste(collapse = "|")
+}
+
+# Now use dplyr to create the feature data frame
+annotation.df.blood <- AnnotationDbi::select(
+  x       = hgu133plus2.db,
+  keys    = rownames(assay_filt),
+  columns = c("PROBEID", "ENSEMBL", "ENTREZID", "SYMBOL", "GENENAME", "GO","GENETYPE"),
+  keytype = "PROBEID"
+  ) %>%
+  group_by(PROBEID) %>%
+  summarise_each(funs(collapser)) %>%
+  ungroup
+
+# Change row names of feature data (annotation) to be equal to gene matrix
+rownames(annotation.df.blood) <- annotation.df.blood$PROBEID
+
+# Check that annotation has been computed for the same features than gene matrix
+dim(assay_filt)
+dim(annotation.df.blood)
+```
+
+### Sputum  
+
+```{r feature_data_sputum}
+# Create a data frame with annotation by selecting available columns from a specific data base 
+annotation.df.sputum <- AnnotationDbi::select(
+  x       = hgu133plus2.db,
+  keys    = rownames(result_mod),
+  columns = c("PROBEID", "ENSEMBL", "ENTREZID", "SYMBOL", "GENENAME", "GO","GENETYPE"),
+  keytype = "PROBEID"
+  )
+
+# Check number of rows from original data and annotated data frame
+dim(result_mod)
+dim(annotation.df.sputum)
+```
+
+```{r check_annotation_sputum}
+# Check that there is at least one row in the annotations for each probe-id in the array dataset
+all(rownames(result_mod) %in% annotation.df.sputum$PROBEID)
+
+# Check how many IDs are duplicated
+dup.ids <- annotation.df.sputum$PROBEID[duplicated(annotation.df.sputum$PROBEID)] %>% 
+  unique %>%
+  sort
+
+
+# Create a data frame of one row per feature annotation containing annotations
+
+# This function allows to collapse info with the following output:
+# [1] "Lypla1|Tcea1"
+collapser <- function(x){
+  x %>% unique %>% sort %>% paste(collapse = "|")
+}
+
+# Now use dplyr to create the feature data frame
+annotation.df.sputum <- AnnotationDbi::select(
+  x       = hgu133plus2.db,
+  keys    = rownames(result_mod),
+  columns = c("PROBEID", "ENSEMBL", "ENTREZID", "SYMBOL", "GENENAME", "GO","GENETYPE"),
+  keytype = "PROBEID"
+  ) %>%
+  group_by(PROBEID) %>%
+  summarise_each(funs(collapser)) %>%
+  ungroup
+
+# Change row names of feature data (annotation) to be equal to gene matrix
+rownames(annotation.df.sputum) <- annotation.df.sputum$PROBEID
+
+# Check that annotation has been computed for the same features than gene matrix
+dim(result_mod)
+dim(annotation.df.sputum)
+```
+
+### Check order for all data frames  
+
+Prior to create the `eset` object, let's check if we need to change order of rows of some of the three data frames (pheno, assay, feature data):  
+
+### Blood  
+
+```{r check_order}
+# Check gene matrix and feature data: rownames are genes
+identical(rownames(assay_filt), rownames(annotation.df.blood))
+
+# Change order or rows
+ids.anno.ord <- as.character(intersect(rownames(assay_filt), rownames(annotation.df.blood)))
+annotation.df.blood.ord <- annotation.df.blood[ids.anno.ord,]
+rownames(annotation.df.blood.ord) <- annotation.df.blood.ord$PROBEID
+
+# Check again gene matrix and feature data
+identical(rownames(assay_filt), rownames(annotation.df.blood.ord))
+
+# Check gene matrix and pheno data: rownames of pheno are patients 
+identical(colnames(assay_filt), rownames(pheno_new))
+```
+
+### Sputum  
+
+```{r check_order_sputum}
+# Check gene matrix and feature data: rownames are genes
+identical(rownames(result_mod), rownames(annotation.df.sputum))
+
+# Change order or rows
+ids.anno.ord <- as.character(intersect(rownames(result_mod), rownames(annotation.df.sputum)))
+annotation.df.sputum.ord <- annotation.df.sputum[ids.anno.ord,]
+rownames(annotation.df.sputum.ord) <- annotation.df.sputum.ord$PROBEID
+
+# Check again gene matrix and feature data
+identical(rownames(result_mod), rownames(annotation.df.sputum.ord))
+
+# Check gene matrix and pheno data: rownames of pheno are patients 
+identical(colnames(result_mod), rownames(pheno_new))
+```
+
+### Expression set  
+Once expression data and phenotipic data have been processed, let's create a **Expression set** object by using `ExpressionSet` function from *Biobase* package:  
+
+### Blood  
+
+```{r eset_object_blood}
+blood_eset <- ExpressionSet(assayData =  assay_filt, 
+                            phenoData = AnnotatedDataFrame(pheno_new),
+                            featureData= AnnotatedDataFrame(annotation.df.blood.ord),
+                            annotation ="hgu133plus2")
+
+blood_eset
+```
+
+```{r save_eset}
+save(blood_eset, file = "/Users/carla/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Transcriptomics/eset_blood.rda")
+```
+
+### Sputum  
+
+```{r eset_object_sputum}
+sputum_eset <- ExpressionSet(assayData =  result_mod, 
+                            phenoData = AnnotatedDataFrame(pheno_new),
+                            featureData= AnnotatedDataFrame(annotation.df.sputum.ord),
+                            annotation ="hgu133plus2")
+
+sputum_eset
+```
+
+```{r save_eset_sputum}
+save(sputum_eset, file = "/Users/carla/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Transcriptomics/eset_sputum.rda")
+```
+
+## Explore Expression Set object  
+
+```{r load_eset}
+load("/Users/carla/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Transcriptomics/eset_blood.rda")
+
+blood_eset
+```
+
+```{r get_data_eset}
+# Transcriptomic data
+expr <- exprs(blood_eset)
+
+# Phenotipic data
+# Retrieves the subjects’ phenotypes in an AnnotatedDataFrame object 
+pheno_blood <- phenoData(blood_eset)
+# pData() converts the phenotipic data to a data frame 
+phenoDataFrame <- pData(blood_eset)
+
+# Annotation data
+annotation.blood <- fData(blood_eset)
+```
+
+## Just in case to use original rdr IDs  
+
+```{r clinical_Radar}
+clinical <- read.csv("/Users/carla/Downloads/eclipse_clinical.txt", sep = "\t")
+
+# Change ID data type to character
+clinical_change <- transform(clinical, id = as.character(id))
+rownames(clinical_change) <- clinical_change$id
+```
+
+```{r coldata_mod}
+# Storing information for colData in a data frame
+a <- colnames(rdr)
+id <- substr(unlist(lapply(sapply(a, strsplit, "_"), "[[", 1)), 2, 12)
+time <- unlist(lapply(sapply(a, strsplit, "_"), "[[", 4))
+dd <- data.frame(filename=a, id=id, time=time)
+```
+
+```{r intersect}
+common_test <- intersect(rownames(clinical_change), dd$id)
+clinical_filt <- clinical_change[common_test,]
+
+common_trans_rdr <- intersect(clinical_filt$SUBJID, expression$De_identified)
+```
