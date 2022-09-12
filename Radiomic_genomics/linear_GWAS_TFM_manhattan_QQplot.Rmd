@@ -1,0 +1,135 @@
+---
+title: "GWAS script"
+author: "Carlos López Pleguezuelos"
+date: '2022-05-23'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, comment = "", warning = FALSE, message = FALSE, cache = TRUE)
+
+library(RColorBrewer)
+library(qqman)
+library(CMplot)
+```
+
+
+# Script para correr en la terminal
+./plink2 \
+--vcf RADIOGEN_lung_new.vcf \
+--no-parents\
+--no-sex \
+--pheno Miguel_STAT_3m_v3.pheno \
+--covar Miguel_STAT_3m_v3.covar \
+--linear \
+--out Miguel_STAT_3m_v3.results
+
+# awk 'FNR>1 || NR==1' Miguel_STAT_3m_v3.results.Endpoint.glm.linear | grep -w 'TEST\|ADD' | sort -g -k11,11 > Miguel_STAT_3m_v3.results
+
+
+```{r}
+# Load GWAS output
+## Set working directory
+ruta <- "/media/radiogenomics/4TB/CLPleg/R_scripts/results_linear_GWAS/GOLD"
+setwd(ruta)
+
+## Read input file
+S<-read.delim("ssv_GWAS_result.assoc.linear",header=F,
+              stringsAsFactors=FALSE, dec=".", na.strings=c("NA", ""), sep = " ")
+colnames(S) <- c("X","CHR","SNP","BP","A1","TEST","NMISS","BETA","STAT","P")
+
+
+N<-read.delim("ssv_GWAS_result_no_covar.assoc.linear",header=T,
+              stringsAsFactors=FALSE, dec=".", na.strings=c("NA", ""), sep = " ")
+#colnames(S) <- c(" ","CHR","SNP","BP","A1","TEST","NMISS","BETA","STAT","P")
+```
+```{r}
+# Delete rows of SNPs in mithocondrial, Y and X chromosomes
+S <- S[!grepl(23, S$CHR),]
+S <- S[!grepl(24, S$CHR),]
+S <- S[!grepl(26, S$CHR),]
+S <- S[!grepl("CHR", S$CHR),]
+
+N <- N[!grepl(23, N$CHR),]
+N <- N[!grepl(24, N$CHR),]
+N <- N[!grepl(26, N$CHR),]
+```
+
+```{r}
+S$CHR <- as.numeric(S$CHR)
+S$BP <- as.numeric(S$BP)
+S$P <- as.numeric(S$P)
+
+N$CHR <- as.numeric(N$CHR)
+N$BP <- as.numeric(N$BP)
+N$P <- as.numeric(N$P)
+```
+```{r}
+setwd(ruta)
+#### Manhattan plot ####
+mypalette <- c("#FA3535", "#E50202", "#BB0000", "#970000", "#6C0000")
+
+tiff(file = "manhattan.tiff", width = 1200, height = 600, units = "px")
+manhattan(S, chr ="CHR", bp = "BP", p = "P", snp = "A1",
+          col=mypalette, chrlabs = NULL, ylim = c(0,8),
+          suggestiveline = -log10(1e-05), genomewideline = -log10(5e-08),
+          highlight = FALSE, logp = TRUE, annotatePval = NULL,
+          annotateTop = TRUE)
+dev.off()
+```
+```{r}
+setwd(ruta)
+#### Manhattan plot ####
+mypalette <- c("#FA3535", "#E50202", "#BB0000", "#970000", "#6C0000")
+
+tiff(file = "No_Cov_manhattan.tiff", width = 1200, height = 600, units = "px")
+manhattan(N, chr ="CHR", bp = "BP", p = "P", snp = "A1",
+          col=mypalette, chrlabs = NULL, ylim = c(0,8),
+          suggestiveline = -log10(1e-05), genomewideline = -log10(5e-08),
+          highlight = FALSE, logp = TRUE, annotatePval = NULL,
+          annotateTop = TRUE)
+dev.off()
+```
+```{r}
+#### QQ plot ####
+tiff(file = "QQplot.tiff", width = 1200, height = 600, units = "px")
+input<-S
+stat_type<-"PVAL"
+color<-"#BB0000"
+xmax <- as.numeric(7)
+print(xmax)
+output<-"QQplot.tiff"
+setwd("/media/radiogenomics/4TB/CLPleg/R_scripts")
+
+source("qqplot_function.R")
+
+rm(z)
+
+setwd(ruta)
+dev.off()
+```
+
+```{r}
+#### QQ plot ####
+tiff(file = "No_Cov_QQplot.tiff", width = 1200, height = 600, units = "px")
+input<-N
+stat_type<-"PVAL"
+color<-"#BB0000"
+xmax <- as.numeric(7)
+print(xmax)
+output<-"QQplot+hist.tiff"
+setwd("/media/radiogenomics/4TB/CLPleg/R_scripts")
+
+source("qqplot_function.R")
+
+rm(z)
+
+setwd(ruta)
+dev.off()
+```
+```{r}
+# Extract only the SNPs which p-val <= 1*10⁻5
+setwd("/media/radiogenomics/4TB/CLPleg/R_scripts")
+S_subset <- subset(S, P<=1e-05)
+write.table(S_subset, "rec_literature_1e-05.tsv", sep = "\t", row.names = T, col.names = T)
+```

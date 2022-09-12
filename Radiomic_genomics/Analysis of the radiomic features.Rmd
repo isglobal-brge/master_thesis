@@ -1,0 +1,173 @@
+---
+title: "Analysis of the radiomic features"
+output: html_document
+author: "Carlos López Pleguezuelos"
+---
+
+```{r setup, include=FALSE}
+  knitr::opts_chunk$set(echo = FALSE, comment = "", warning = FALSE, message = FALSE, cache = TRUE)
+  library(reticulate)
+  use_python(Sys.which("python"))
+  library(plotrix)
+```
+
+## Introduction
+
+In this report we will perform a complete analysis and filtering of the results of the extraction of radiomic features from 2581 individuals. The extraction was performed twice, but setting different parameters in each run. In the first run, the gray level and voxel size were normalized to improve the robustness and repeatability of the results. In the second run, the normalization was maintained and, in addition, the *voxelArrayShift* parameter was activated to avoid negative values for some features.
+
+The main objective of this report is to exclude from the study all those results that may come from abnormal CT images or masks. The PyRadiomics extractor requires as imput the original image and its mask. In our case, the mask was generated through a segmentation step of the original image, implementing a machine-learning algorithm. The results of the segmentation step were not checked, so it may have happened that radiomic features were calculated for some patients with inaccurate masks. In the following pages, we will perform an analysis of the results to detect and exclude patients with altered radiomic features values from the study.
+
+```{r}
+library(knitr)
+library(pander)
+```
+
+## Comparison of the radiomic features extractions
+
+The tsv with the results of the extraction of the first run **normalized** and the second run **normalized-shift** are loaded. Below we show the dimensions of the tsv normalized (norm) and normalized-shift (norm_shift) results.
+```{r}
+  norm <- read.csv("/home/carlos/ISGlobal/results/results_norm.tsv", sep = "\t", header = TRUE, dec = ".", stringsAsFactors = FALSE) 
+
+norm_shift <- read.csv("/home/carlos/ISGlobal/results/results_norm_shift.tsv", sep = "\t", header = TRUE, dec = ".", stringsAsFactors = FALSE)
+```
+```{r pressure, echo=FALSE}
+df_dim <- data.frame(parameters = c("rows", "columns"), norm = c(dim(norm)), norm_shift = c(dim(norm_shift)))
+```
+```{r, fig.pos='center'}
+pander(df_dim, caption = "Dimension of normalized and normalized-shift tsv")
+```
+It can be observed that both tsv have the same dimensions. The row numbers refers to the radiomic features + 1, while the columns refers to the number of individuals + 1 included in the study.
+
+## Analysis of the radiomic features
+Lungmask has difficulties when processing images with margins, since it does not segment the lung but other areas of the CT image. Therefore, we expect the voxel values within the erroneously segmented region to be very different from the lung values. Thus, by comparing the first-order features between patients we will be able to identify the cases in which lungmask failed.
+
+The first-order statistics describe the distribution of voxel intensities within the image region defined by the mask through commonly used and basic metrics <https://pyradiomics.readthedocs.io/en/latest/features.html>. The mean and variance will show different values whether they are calculated from the voxel of the lung or other regions of the CT image.
+```{r}
+# create dataframe with the mean, median and sd
+mean_norm <- as.numeric(norm[60,2:ncol(norm)])
+variance_norm <- as.numeric(norm[69,2:ncol(norm)])
+mean_norm_shift <- as.numeric(norm_shift[60,2:ncol(norm)])
+variance_norm_shift <- as.numeric(norm_shift[69,2:ncol(norm)])
+```
+```{r, fig.align='center'}
+# Plot the mean and the variance of the results of the normalized extraction
+plot(mean_norm, variance_norm, xlab = "Mean", ylab = "Variance")
+#points(-0.7779219, 0.0912258, col = "red", pch = 19)
+draw.ellipse(0.03,0.025, a = 0.4, b = 0.09, border = "red")
+draw.ellipse(-0.75, 0.11, a = 0.5, b = 0.07, border = "blue")
+#draw.ellipse(-0.5, 0.275, a = 0.2, b = 0.03, border = "green")
+```
+
+It can be observed that, when the mean is plotted against the variance, the data are distributed in two different groups and some others are not even included in any of them. Evidently, this distribution is not random, so it can be explained by different reasons:
+    a) One of the groups is composed of controls and the other of cases, assuming that the outer points are deviations.
+    b) The images of some of the groups could not be segmented correctly, so that erroneous masks were generated and, consequently, the radiomic features were calculated on other tissues in the image. Thus, one group would correspond to the mean and variance of the lungs and the others to the radiomic features of different parts of the thorax.
+    c) Despite the previous normalization step on CT images, it was not enough to unify the values of the different imaging protocols or CT scanners.
+
+**a) Controls versus cases**.
+When examining the patients grouped in each of the groups, we observe that cases and controls are mixed. Therefore, hypothesis a) would be rejected.
+
+**b) Wrong masks**.
+Another reasonable explanation for the distribution of patients shown in the above graph could be the application of erroneous masks. As explained in previous lines, the lung in CT images is segmented to create the masks to be implemented in the *pyradomics* feature extraction. If the mask has been generated erroneously or does not overlap perfectly with the original image, radiomic features are not calculated on the lungs but on other regions of the thorax. To assess whether the cause of the unexpected distribution in the mean vs. variance plot is a problem in the segmentation, we will plot an image of one patient from each of the groups: central group (CG), right lower group (RB) and outer group (OG).
+```{r}
+# Before we can plot an image of every group, we need to identify to which group belongs every patient. This is the aim of this chunk
+# Identification of the patients included into the bottom left group
+# Create a vector where to store the column number of the patients that belongs to the bottom right group
+bottom_right_group <- c()
+patients_IDs <- colnames(norm)
+patients_IDs <- patients_IDs[2:length(patients_IDs)]
+
+for (position in seq(1:length(mean_norm))){
+  # Get the value of the mean an variance for each patient
+  mn <- mean_norm[position]
+  vr <- variance_norm[position]
+  
+  if (mn > -0.04 && vr < 0.1){
+    bottom_right_group <- c(bottom_right_group, patients_IDs[position])
+  }
+}
+```
+```{r}
+# Selection of the columns of the data frame by the patient IDs of the dots on the BR 
+RG <- c()
+
+for (position in seq(1:length(mean_norm))){
+  # Get the value of the mean an variance for each patient
+  mn <- mean_norm[position]
+  vr <- variance_norm[position]
+  
+  if (mn > 0.25 && vr < 0.025){
+    RG <- c(RG, patients_IDs[position])
+  }
+}
+```
+```{r}
+# Selection of the ID of the dots of the top part of the graph
+top <- c()
+
+for (position in seq(1:length(mean_norm))){
+  # Get the value of the mean an variance for each patient
+  mn <- mean_norm[position]
+  vr <- variance_norm[position]
+  
+  if (vr > 0.2){
+    top <- c(top, patients_IDs[position])
+  }
+}
+```
+```{r}
+# Get mean and variance for reference patients of each group to plot them and check whether they really belong to different groups
+
+# Center group (CG)
+patient_CG <- norm$X023140000001
+mean_CG <- as.numeric(patient_CG[60])
+variance_CG <- as.numeric(patient_CG[69])
+
+# Bottom rigth group (BR)
+patient_BR <- norm$X023579003446
+mean_BR <- as.numeric(patient_BR[60])
+variance_BR <- as.numeric(patient_BR[69])
+
+# Outter patients (OP)
+patient_OP <- norm$X024403002864
+mean_OP <- as.numeric(patient_OP[60])
+variance_OP <- as.numeric(patient_OP[69])
+```
+```{r, fig.align='center'}
+# Plot as coloured dots the patients selected in previous steps. The mean and the variance of these patiens of the results of the normalized extraction are plotted.
+plot(mean_norm, variance_norm, xlab = "Mean", ylab = "Variance")
+points(mean_CG, variance_CG, col = "blue", pch = 19)
+points(mean_BR, variance_BR, col = "red", pch = 19)
+points(mean_OP, variance_OP, col = "green", pch = 19)
+```
+
+First we have to choose a patient from each of the groups to visualize how the original image and the mask interact and whether the mask has been generated correctly. In the graph above we have colored each of the selected individuals. We can see that each selected patient belongs to a different group in terms of mean versus variance. Next we will represent the CT image and its mask to determine if they overlap correctly.
+
+```{r, echo=FALSE, fig.pos='center', fig.cap="*Figure 1. Outter group (OG) CT image + mask*", out.width = '100%'}
+knitr::include_graphics("/home/carlos/ISGlobal/Plotting_image+mask/OG_image_mask.png")
+```
+
+
+```{r, echo=FALSE, fig.pos='center', fig.cap="*Figure 2. Center group (CG) CT image + mask*", out.width = '100%'}
+knitr::include_graphics("/home/carlos/ISGlobal/Plotting_image+mask/CG_image_mask.png")
+```
+
+
+```{r, echo=FALSE, fig.pos='center', fig.cap="*Figure 3. Bottom right (BR) group CT image + mask*", out.width = '100%'}
+knitr::include_graphics("/home/carlos/ISGlobal/Plotting_image+mask/BR_image_mask.png")
+```
+
+
+It can be ovserved in the three images above that the masks have been successfuly generated for every patient. Morover, it is also notable that the mask perfectly overlaps in the three images and the lung is correctly selected in all cases. The three images shonw are mere examples, other image-mask have been manually analyzed, but not all. However the way that patient's mean-variance are distributed in the plot, let us reasonabily assume that there was no issues at the segmentation step for any patient. Thus, hypothesis b) of the incorrect mask is also ruled out.
+
+**c) Differences in CT images characteristics**
+Having ruled out these two hypotheses, it remains to evaluate whether the reason for the distribution shown lies in the characteristics of the CT image. If we look closely at the images represented above we can observe that the tonalities and densities vary a lot. All the images of each of the groups have similar apparence. Therefore, it is reasonable to think that the appearance of the groups is due to the different characteristics of the CT images.
+
+In the literature, the normalization step is highly recommended to reduce the deviation due to different CT imaging obtention. However, it is also stated that it is not a perfect solution since in many cases it is not able to completely solve the problem. In our case it is evident that normalization has not been sufficient.
+
+## Conclusions
+From the results obtained we can conclude that the segmentation has been performed correctly on all patients and that it has allowed the correct calculation of the radiomic features by *pyradiomics*. Therefore, it is not necessary to exclude any individual from the study at this stage.
+
+On the other hand, a non-random distribution of patients in terms of mean versus variance has been observed. This is due to differences in the characteristics of the images used for the study. The fact of using different CT scanners or different parameters when generating the images may have introduced this deviation. Therefore, a new parameter to be taken into account has been discovered.
+
+To avoid introducing error in the next steps of the work (GWAS or transcriptomics) it is proposed: a) introduce the CT image type as a covariate. b) To perform the following analyses dividing the patients by groups according to the type of image. For instance, using the *k-means* algorithm, individuals can be assigned, based on a probability, to the different groups. By determining a minimum probability to be included in one of the groups, two groups can be generated and studies can be performed in parallel on both of them.
+

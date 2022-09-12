@@ -1,0 +1,56 @@
+---
+title: "modifying_linear_GWAS_files_Haploview"
+author: "Carlos López Pleguezuelos"
+date: '2022-06-22'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, comment = "", warning = FALSE, message = FALSE, cache = TRUE)
+
+library(RColorBrewer)
+library(qqman)
+#library(CMplot)
+```
+
+In this pipeline, we will filter the output files of the linear GWAS to keep only those SNPs that are significatively associated with the phenotype. In most of the cases, signals did not result significative, although its shape is like the ones that tends to be. Therefore, we will not only keep those signals that have a significance above 5e-08 but also the ones that have a P value greater than 1e-05.
+
+The output filtered files will be implemented in the creation of the haploviwer files. Thus, we will asses wether the group of significative SNPs are related by their own with the phenotype or because they are part of an haplotype.
+
+command to generate the filtered bfiles:
+./plink --bfile /home/carlos/ISGlobal/Genomic_data/phg000919.v1.ECLIPSE_COPD.genotype-calls-matrixfmt.HumanHap550_v3.c1.DS-COPD-RD/matrix/COPD_ECLIPSE_2009sortedlet_hg18 --extract /home/carlos/ISGlobal/results_linear_GWAS_ok/HCL1/list_significative_SNPs --make-bed
+
+```{r}
+# Open file and filter it
+ruta = "/home/carlos/ISGlobal/results_linear_GWAS_ok/GOLD"
+setwd(ruta)
+
+file <- read.table("ssv_GWAS_result.assoc.linear", sep = " ", header = F)
+colnames(file) <- c(" ", "CHR","SNP", "BP", "A1", "TEST", "NMISS", "BETA", "STAT", "P")
+file$P <- as.numeric(file$P)
+file <- file[,-1]
+
+# keep only the snps that have a P value above 1e-05
+file_out <- file[file$P < 1e-05,]
+#file_out$SNP <- as.character(file_out$SNP)
+```
+Up to here we have selected from the results files of the GWAS the SNPs that had a p vlaue equal or lower than 1e-05. Now, we will add all these SNPs ID into a same file to filter out the original bfiles and downsize it so the Haploviwer will be way faster.
+
+```{r}
+# create a list of SNP_ID to filter the original bfiles
+setwd(ruta)
+write.table(file_out$SNP, file = "list_significative_SNPs", sep = " ", col.names = T, row.names = F)
+```
+```{r}
+# write the file out
+write.table(file_out, file = "Haplo_GWAS_result_linear", sep = " ", col.names = T, row.names = F)
+```
+
+Having generated a file with the significative SNPs for each of the GWAS we will:
+1) Filter the main bfiles to get a bfile for each pheno only with its significative SNPs
+./plink --bfile /home/carlos/ISGlobal/Genomic_data/phg000919.v1.ECLIPSE_COPD.genotype-calls-matrixfmt.HumanHap550_v3.c1.DS-COPD-RD/matrix/COPD_ECLIPSE_2009sortedlet_hg18 --extract /home/carlos/ISGlobal/results_linear_GWAS_ok/HCL1/list_significative_SNPs --make-bed
+
+2) From the pheno-specific bfiles, create the HV version so we can assess whether the significant SNPs belong to the same haplotype
+plink --bfile bfiles --recode HV --snps-only just-acgt --out HAP
+
+

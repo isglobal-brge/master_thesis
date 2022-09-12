@@ -1,0 +1,343 @@
+---
+title: "PCA_HCL"
+author: "Carlos López Pleguezuelos"
+date: "6/6/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, comment = "", warning = FALSE, message = FALSE, cache = TRUE)
+library(RadAR)
+library(data.table)
+library(scales)
+library(tidyr)
+library(MASS)
+library(table1)
+library(dplyr)
+library(caret)
+```
+```{r}
+setwd("/home/carlos/ISGlobal/PCA_HCL_Gwas")
+rdr <- load("radar_L1_Norm_adjusted_min_PCA.rda")
+```
+```{r}
+# Get adjusted values by the minimum voxel values as it was discoveres in other Rdm. We get it form the RadAR object to mkae sure Carla and I have the same values
+Adjusted_RF <- assay(rdr_filt_original,2)
+Adjusted_RF <- t(Adjusted_RF)
+```
+```{r}
+# Get clinical data + PCA objects with individuals names
+clinical <- colData(rdr_filt_original)
+```
+The aim of this report is to prepare everything needed for the GWAS analysis with the PCA and the HCL clusters that were generated. In here, ww will caluclate the value of each cluster, we will choose through Stepwise the covariates that have to be included in the GWAS, and, finally, we will prepare the files to run the GWAS with the REGENIE software.
+
+# Cluster calculation
+As it is done in the cardiac magnetic... paper, from every cluster is calculated a value that is used as a phenotype. To do so, we will calulate for each individual the mean of the radiomics that belong to the same cluster. RAdiomic features values have different magnitudes, therefore, if we cluster them through the mean, the radiomic with smaller magnitudes will have less weight in the final cluster value. To avoid this, firt we will carry out a Z-Score standarization of each radiomic feature. Therefore, all radiomic features will have the same magnitude and when we calculate the mean of the radiomic included into each of the clusters, all radiomic features will have the same weight.
+```{r}
+# Transformation from the list format of the raidomics to a dataframe to ease working eith it.
+Radiomics <- data.frame(Adjusted_RF)
+```
+```{r}
+# Scale the radiomic dataframe to give the same weight to all radiomic and calculate the cluster mean
+Radiomic_z.adj <- scale(Radiomics, center = T, scale = T)
+Radiomic_z.adj <- data.frame(Radiomic_z.adj)
+```
+```{r}
+# Create the df with each hierarchical cluster
+Radiomic_z.adj$HCL1 <- rowSums(Radiomic_z.adj[,c("Elongation.original", "Sphericity.original" , "Kurtosis.original", "Skewness.original")])
+Radiomic_z.adj$HCL2 <- rowSums(Radiomic_z.adj[,c("MajorAxisLength.original", "Maximum2DDiameterColumn.original", "Maximum2DDiameterRow.original", "Maximum2DDiameterSlice.original", "Maximum3DDiameter.original", "MinorAxisLength.original", "SurfaceArea.original", "VoxelVolume.original")])
+Radiomic_z.adj$HCL3 <- rowSums(Radiomic_z.adj[,c("SurfaceVolumeRatio.original","InterquartileRange.original","MeanAbsoluteDeviation.original","RobustMeanAbsoluteDeviation.original","Variance.original")])
+Radiomic_z.adj$HCL4 <- rowSums(Radiomic_z.adj[,c("X10Percentile.original","X90Percentile.original","Mean.original","Minimum.original")])
+Radiomic_z.adj$HCL5 <- rowSums(Radiomic_z.adj[,c("Entropy.original","ClusterProminence.original","ClusterTendency.original","Contrast.original", "DifferenceAverage.original","DifferenceEntropy.original","DifferenceVariance.original","Imc2.original","InverseVariance.original","JointEntropy.original","SumEntropy.original","SumSquares.original","GrayLevelNonUniformity.original","GrayLevelVariance.original","RunLengthNonUniformity.original","RunLengthNonUniformityNormalized.original","RunPercentage.original","ShortRunEmphasis.original","ShortRunHighGrayLevelEmphasis.original","ShortRunLowGrayLevelEmphasis.original","SmallAreaHighGrayLevelEmphasis.original","ZoneEntropy.original","ZonePercentage.original","DependenceEntropy.original","DependenceVariance.original","SmallDependenceEmphasis.original","SmallDependenceHighGrayLevelEmphasis.original","SmallDependenceLowGrayLevelEmphasis.original","Complexity.original")])
+Radiomic_z.adj$HCL6 <- rowSums(Radiomic_z.adj[,c("Uniformity.original","ClusterShade.original","Id.original","Idm.original","Idmn.original","Idn.original","Imc1.original","JointEnergy.original","MaximumProbability.original","GrayLevelNonUniformityNormalized.original","LongRunEmphasis.original","LongRunHighGrayLevelEmphasis.original","RunEntropy.original","RunVariance.original","DependenceNonUniformity.original","DependenceNonUniformityNormalized.original","LargeDependenceEmphasis.original")])
+Radiomic_z.adj$HCL7 <- rowSums(Radiomic_z.adj[,c("Autocorrelation.original","JointAverage.original","SumAverage.original","HighGrayLevelRunEmphasis.original","SmallAreaEmphasis.original","SmallAreaLowGrayLevelEmphasis.original","HighGrayLevelEmphasis.original","LargeDependenceHighGrayLevelEmphasis.original")])
+Radiomic_z.adj$HCL8 <- rowSums(Radiomic_z.adj[,c("Correlation.original","MCC.original","LongRunLowGrayLevelEmphasis.original","LowGrayLevelRunEmphasis.original","LargeDependenceLowGrayLevelEmphasis.original","LowGrayLevelEmphasis.original","Coarseness.original")])
+```
+Once we have calculated the mean value foe each cluster, we have to decide which covariates include for the GWAS. In https://www.ncbi.nlm.nih.gov/projects/gap/cgi-bin/GetListOfAllObjects.cgi?study_id=phs001252.v1.p1&object_type=variable all variables from the clinical dataset are described. Into this dataset we can find many variables but not all of them can be covariates for the GWAS. Now, looking at the decription of the variables we will choose the potential covariates for the GWAS.
+
+After selecting which covariates to include in the study, we will create a dataset joining the covariates and the phenotipes to study: PC1, PC2, HCL1-8 and GOLDCD.
+```{r}
+# Create a HCL dataframe with the 
+HCL <- Radiomic_z.adj[,c("HCL1", "HCL2", "HCL3", "HCL4", "HCL5", "HCL6", "HCL7", "HCL8")]
+GOLD_PCA <- clinical[,c("SUBJECT_ID","GOLDCD","PC1", "PC2")]
+GOLD_PCA_HCL <- merge(GOLD_PCA, HCL, by='row.names')
+rownames(GOLD_PCA_HCL) <- GOLD_PCA_HCL$Row.names
+
+# Append the potential covariates to the pheno dataset
+covariates <- clinical[,c("CENTREID.t1", "AGE", "SEX.t1", "SUPKYR", "COUNTRY", "RACE1.t1", "FFSUBSCR.t1", "PFATTS.t1", "FATFMASS.t1", "HEIGHT", "WEIGHT.t1", "PO2BLD.t1", "BMI.t1", "CESDTOTC.t1", "DEPRESCD.t1", "SMOKER")]
+
+# Merge the covariates and GOLD_PCA_HCL dataframe to have all data for the analysis in the same object
+pheno_covar <- merge(GOLD_PCA_HCL, covariates, by='row.names', all=T)
+rownames(pheno_covar) <- pheno_covar$Row.names
+pheno_covar <- pheno_covar[,-c(1,2)]
+```
+
+### Starting analysis to include/exclude covariates
+```{r}
+# From clinical data create a subset of covaraibles that might be included in the GWAS study
+table1(~ factor(CENTREID.t1) + AGE + factor(SEX.t1) + SUPKYR + factor(COUNTRY) + factor(RACE1.t1) + FFSUBSCR.t1 + PFATTS.t1 + FATFMASS.t1 + HEIGHT + WEIGHT.t1 + PO2BLD.t1 + BMI.t1 + CESDTOTC.t1 + DEPRESCD.t1 + SMOKER | GOLDCD, data=pheno_covar, overal="Total")
+
+# Remove var with var=0
+varianza_cero<-apply(subset(pheno_covar, select=-c(SUBJECT_ID, GOLDCD, PC1, PC2, HCL1, HCL2, HCL3, HCL4, HCL5, HCL6, HCL7, HCL8)),2, function(x){var(x,na.rm=TRUE)})==0
+varianza_cero[is.na(varianza_cero)]<-FALSE
+tmp <-subset(pheno_covar, select=-c(SUBJECT_ID, GOLDCD, PC1, PC2, HCL1, HCL2, HCL3, HCL4, HCL5, HCL6, HCL7, HCL8))[,!as.vector(varianza_cero)]
+tmp <- data.frame(tmp)
+```
+```{r}
+tmp <- drop_na(tmp)
+tmp$SEX.t1 = as.numeric(as.factor(tmp$SEX.t1))
+tmp$COUNTRY = as.numeric(as.factor(tmp$COUNTRY))
+tmp$RACE1.t1 = as.numeric(as.factor(tmp$RACE1.t1))
+tmp$DEPRESCD.t1 = as.numeric(as.factor(tmp$DEPRESCD.t1))
+tmp2 <- mutate_all(tmp, function(x) as.numeric(x))
+# Correlation between variables and plot
+correlacion <- cor(tmp2)
+plot_corr <- corrplot(correlacion, type="upper", order="hclust",
+         tl.col="black", tl.srt = 45, tl.cex=0.5)
+plot_corr
+```
+```{r}
+# Drop the covariable correlated between themselves
+hc <- findCorrelation(correlacion, cutoff=0.3)
+hc <- sort(hc)
+
+reduced.data <- subset(tmp)[,-c(hc)]
+
+colnames(reduced.data)
+
+corrplot(cor(reduced.data), type="upper", order="hclust",
+         tl.col="black", tl.srt = 45, tl.cex=0.5)
+
+## corrijo la selecci?n que hizo, por la v2 de los que tienen m?ltiple respueta.
+keep.covar <- names(subset(reduced.data))
+all.covar <- names(pheno_covar)
+```
+
+
+```{r}
+# Regresion pheno ~ covars
+# Habra que ejecutar este paso para todos los fenotipos que vayamos a estudiar
+## To skip errors first is necessary to remove NA
+table1(~ AGE + SUPKYR + factor(COUNTRY) + factor(RACE1.t1) + FFSUBSCR.t1 + HEIGHT + PO2BLD.t1 + BMI.t1 + SMOKER | factor(GOLDCD), data=pheno_covar, overal="Total")
+
+full.model <- lm(GOLDCD ~ AGE + SUPKYR + factor(COUNTRY) + factor(RACE1.t1) + FFSUBSCR.t1 + HEIGHT + PO2BLD.t1 + BMI.t1 + SMOKER, data = pheno_covar)
+
+step.model <- stepAIC(full.model, direction = "both", trace = FALSE)#, na.action = na.omit)
+summary(step.model)
+
+
+```
+
+```{r}
+# Regresion pheno ~ covars
+# Habra que ejecutar este paso para todos los fenotipos que vayamos a estudiar
+## To skip errors first is necessary to remove NA
+#table1(~ AGE + SUPKYR + factor(COUNTRY) + factor(RACE1.t1) + FFSUBSCR.t1 + HEIGHT + PO2BLD.t1 + BMI.t1 + SMOKER | PC1, data=pheno_covar, overal="Total")
+
+PC1_covars <- pheno_covar[,c(3,14,16,17,18,19,22,24,25,28)]
+PC1_covars <- data.frame(PC1_covars)
+PC1_covars <- drop_na(PC1_covars)
+
+full.model <- lm(PC1 ~ AGE + SUPKYR + factor(COUNTRY) + factor(RACE1.t1) + FFSUBSCR.t1 + HEIGHT + PO2BLD.t1 + BMI.t1 + SMOKER, data = PC1_covars)
+
+step.model <- stepAIC(full.model, direction = "both", trace = FALSE)
+summary(step.model)
+```
+
+```{r}
+# Regresion pheno ~ covars
+# Habra que ejecutar este paso para todos los fenotipos que vayamos a estudiar
+## To skip errors first is necessary to remove NA
+#table1(~ AGE + SUPKYR + factor(COUNTRY) + factor(RACE1.t1) + FFSUBSCR.t1 + HEIGHT + PO2BLD.t1 + BMI.t1 + SMOKER | PC1, data=pheno_covar, overal="Total")
+
+PC2_covars <- pheno_covar[,c(4,14,16,17,18,19,22,24,25,28)]
+PC2_covars <- data.frame(PC2_covars)
+PC2_covars <- drop_na(PC2_covars)
+
+full.model <- lm(PC2 ~ AGE + SUPKYR + factor(COUNTRY) + factor(RACE1.t1) + FFSUBSCR.t1 + HEIGHT + PO2BLD.t1 + BMI.t1 + SMOKER, data = PC2_covars)
+
+step.model <- stepAIC(full.model, direction = "both", trace = FALSE)
+summary(step.model)
+```
+
+```{r}
+# HCL1
+
+covars <- pheno_covar[,c(5,14,16,17,18,19,22,24,25,28)]
+covars <- data.frame(covars)
+covars <- drop_na(covars)
+
+full.model <- lm(HCL1 ~ AGE + SUPKYR + factor(COUNTRY) + factor(RACE1.t1) + FFSUBSCR.t1 + HEIGHT + PO2BLD.t1 + BMI.t1 + SMOKER, data = covars)
+
+step.model <- stepAIC(full.model, direction = "both", trace = FALSE)
+summary(step.model)
+```
+
+```{r}
+# HCL2
+
+covars <- pheno_covar[,c(6,14,16,17,18,19,22,24,25,28)]
+covars <- data.frame(covars)
+covars <- drop_na(covars)
+
+full.model <- lm(HCL2 ~ AGE + SUPKYR + factor(COUNTRY) + factor(RACE1.t1) + FFSUBSCR.t1 + HEIGHT + PO2BLD.t1 + BMI.t1 + SMOKER, data = covars)
+
+step.model <- stepAIC(full.model, direction = "both", trace = FALSE)
+summary(step.model)
+```
+
+```{r}
+# HCL3
+
+covars <- pheno_covar[,c(7,14,16,17,18,19,22,24,25,28)]
+covars <- data.frame(covars)
+covars <- drop_na(covars)
+
+full.model <- lm(HCL3 ~ AGE + SUPKYR + factor(COUNTRY) + factor(RACE1.t1) + FFSUBSCR.t1 + HEIGHT + PO2BLD.t1 + BMI.t1 + SMOKER, data = covars)
+
+step.model <- stepAIC(full.model, direction = "both", trace = FALSE)
+summary(step.model)
+```
+
+```{r}
+# HCL4
+
+covars <- pheno_covar[,c(8,14,16,17,18,19,22,24,25,28)]
+covars <- data.frame(covars)
+covars <- drop_na(covars)
+
+full.model <- lm(HCL4 ~ AGE + SUPKYR + factor(COUNTRY) + factor(RACE1.t1) + FFSUBSCR.t1 + HEIGHT + PO2BLD.t1 + BMI.t1 + SMOKER, data = covars)
+
+step.model <- stepAIC(full.model, direction = "both", trace = FALSE)
+summary(step.model)
+```
+
+
+```{r}
+# HCL5
+
+covars <- pheno_covar[,c(9,14,16,17,18,19,22,24,25,28)]
+covars <- data.frame(covars)
+covars <- drop_na(covars)
+
+full.model <- lm(HCL5 ~ AGE + SUPKYR + factor(COUNTRY) + factor(RACE1.t1) + FFSUBSCR.t1 + HEIGHT + PO2BLD.t1 + BMI.t1 + SMOKER, data = covars)
+
+step.model <- stepAIC(full.model, direction = "both", trace = FALSE)
+summary(step.model)
+```
+
+
+```{r}
+# HCL6
+
+covars <- pheno_covar[,c(10,14,16,17,18,19,22,24,25,28)]
+covars <- data.frame(covars)
+covars <- drop_na(covars)
+
+full.model <- lm(HCL6 ~ AGE + SUPKYR + factor(COUNTRY) + factor(RACE1.t1) + FFSUBSCR.t1 + HEIGHT + PO2BLD.t1 + BMI.t1 + SMOKER, data = covars)
+
+step.model <- stepAIC(full.model, direction = "both", trace = FALSE)
+summary(step.model)
+```
+
+```{r}
+# HCL7
+
+covars <- pheno_covar[,c(11,14,16,17,18,19,22,24,25,28)]
+covars <- data.frame(covars)
+covars <- drop_na(covars)
+
+full.model <- lm(HCL7 ~ AGE + SUPKYR + factor(COUNTRY) + factor(RACE1.t1) + FFSUBSCR.t1 + HEIGHT + PO2BLD.t1 + BMI.t1 + SMOKER, data = covars)
+
+step.model <- stepAIC(full.model, direction = "both", trace = FALSE)
+summary(step.model)
+```
+
+
+```{r}
+# HCL8
+
+covars <- pheno_covar[,c(12,14,16,17,18,19,22,24,25,28)]
+covars <- data.frame(covars)
+covars <- drop_na(covars)
+
+full.model <- lm(HCL8 ~ AGE + SUPKYR + factor(COUNTRY) + factor(RACE1.t1) + FFSUBSCR.t1 + HEIGHT + PO2BLD.t1 + BMI.t1 + SMOKER, data = covars)
+
+step.model <- stepAIC(full.model, direction = "both", trace = FALSE)
+summary(step.model)
+```
+
+### Creation of the covariates and phenotypes files
+Once that we have selected the covariates that must be included in the GWAS analysis for each of the phenotypes, we will create the necessary files.
+```{r}
+# ecl codes in the genotype files ends with S1. Before we generate the final files to run the GWAS we need to create the final codes
+# Create vector of repeated elements that must be appended to the end of the ecl code
+tail_to_append <- rep("S1", nrow(pheno_covar))
+pheno_covar$tail_genomic_code <- tail_to_append
+
+# create a column with the genetic codes
+pheno_covar$geno_SUBJECT_ID <- paste(pheno_covar$SUBJECT_ID, pheno_covar$tail_genomic_code, sep='')
+
+# Append the column of paternal and maternal IDs whir are a columns of 0s
+pat_mat_ID <- rep(0, nrow(pheno_covar))
+pheno_covar$pat_mat_ID <- pat_mat_ID
+
+pheno_covar$COUNTRY <- gsub(" ", "-", pheno_covar$COUNTRY)
+```
+
+```{r}
+# Create pheno files
+# PC1
+PC1 <- pheno_covar[,c(30,30,3)]
+colnames(PC1) <- c("FID","IID","PC1")
+
+PC1_covs <- pheno_covar[,c(30,30,17,24,25,28)]
+colnames(PC1_covs) <- c("FID","IID","C1","C2","C3","C4")
+
+# Write the tables out
+setwd("/home/carlos/ISGlobal/PCA_HCL_Gwas/results_selection_covars/PC1")
+write.table(PC1,file="pheno", sep=" ", row.names = F, )
+
+write.table(PC1_covs, file="covs", sep=" ", row.names = F)
+```
+
+
+```{r}
+# Create pheno files
+# PC2
+PC2 <- pheno_covar[,c(30,30,4)]
+colnames(PC2) <- c("FID","IID","PC2")
+
+PC2_covs <- pheno_covar[,c(30,30,19,24,25)]
+colnames(PC2_covs) <- c("FID","IID","C1","C2","C3")
+
+# Write the tables out
+setwd("/home/carlos/ISGlobal/PCA_HCL_Gwas/results_selection_covars/PC2")
+write.table(PC2,file="pheno", sep=" ", row.names = F, )
+
+write.table(PC2_covs, file="covs", sep=" ", row.names = F)
+```
+
+
+```{r}
+# Create pheno files
+# HCL1
+HCL1 <- pheno_covar[,c(30,30,5)]
+colnames(HCL1) <- c("FID","IID","HCL1")
+
+HCL1_covs <- pheno_covar[,c(30,30,14,22,25)]
+colnames(HCL1_covs) <- c("FID","IID","C1","C2","C3")
+
+# Write the tables out
+setwd("/home/carlos/ISGlobal/PCA_HCL_Gwas/results_selection_covars/HCL1")
+write.table(HCL1,file="pheno", sep=" ", row.names = F, )
+
+write.table(HCL1_covs, file="covs", sep=" ", row.names = F)
+```
+
+### 
+```{r}
+
+
+```
+
