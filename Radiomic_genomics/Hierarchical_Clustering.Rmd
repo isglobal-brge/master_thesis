@@ -1,0 +1,35 @@
+---
+title: "Clustering Radiomic Features"
+author: "Carlos López Pleguezuelos"
+date: "5/9/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, comment = "", warning = FALSE, message = FALSE, cache = TRUE)
+library(RadAR)
+library(data.table)
+library(ggplot2)
+```
+```{r}
+# Loading the RadAR object
+load("/home/carlos/ISGlobal/radar_object_Norm_L1.rda")
+```
+```{r}
+# Get dataframe of the radiomic features
+rad_feat <- assay(rdr_L1)
+
+# Transpose the dataframe to have it in the format required to carry out the hierarchical clustering
+rad_feat_t <- t(rad_feat)
+write.csv(rad_feat_t, "/home/carlos/ISGlobal/HCL/radiomic_features.csv", sep = '\t')
+```
+```{r}
+clin_data <- colData(rdr_L1)
+write.csv(clin_data, "/home/carlos/ISGlobal/HCL/clinical_data.csv", sep = "\t")
+```
+```{r}
+table(rdr_L1$GOLDCD)
+rdr_L1$
+```
+
+

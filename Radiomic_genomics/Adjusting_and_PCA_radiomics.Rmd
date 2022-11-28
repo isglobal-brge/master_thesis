@@ -1,0 +1,170 @@
+---
+title: "Adjusting data + PCA"
+author: "Carla Casanova"
+date: "6/3/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE)
+knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 60), tidy = TRUE)
+```
+
+```{r libraries}
+library(RadAR)
+library(dplyr)
+library(ggplot2)
+library(factoextra)
+library(datawizard)
+```
+
+## Preparing data for the analysis  
+
+```{r load_rdr}
+load("/Users/carla/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/results/radar_object_Norm_L1.rda")
+
+rdr_L1
+```
+
+Filter radiomic features by original image type to adjust and perform the analysis only with this data:  
+
+```{r filtering_image_type}
+## filter by image types
+rdr_filt_original <- filter_by_image_type(rdr = rdr_L1, image_type = c("original"))
+ 
+rdr_filt_original
+```
+
+## Adjust by minimum pixel value  
+
+Save the table with original values for radiomic features and prepare an object readable by `adjust()` function from *datawizard* package. Afterwards, adjust data by minimum pixel value variable:  
+
+```{r adjust_all_features}
+# Store table with all the features
+table_radiomic_original <- assay(rdr_filt_original)
+
+# Store col names and row names from the original table
+patients_original <- colnames(table_radiomic_original) 
+features_original <- rownames(table_radiomic_original)
+
+# Let's prepare the data  
+table_radiomic_original.T <- as.data.frame(t(table_radiomic_original))
+
+# Change invalid column names
+# Tags in original features
+names(table_radiomic_original.T)[names(table_radiomic_original.T) == '10Percentile.original'] <- 'tenPercentile.original'
+names(table_radiomic_original.T)[names(table_radiomic_original.T) == '90Percentile.original'] <- 'ninetyPercentile.original'
+
+# Adjust all data for the variable image type
+clinical_features_min_vox_adj_original <- adjust(table_radiomic_original.T, effect = "Minimum.original", keep_intercept = TRUE)
+
+plot(clinical_features_min_vox_adj_original[,"Mean.original"], clinical_features_min_vox_adj_original[,"Variance.original"])
+```
+
+Before storing the adjusted data back to the `rdr` object, prepare the table for having the same format than the original data:  
+
+```{r prepare_table_assay}
+colnames(clinical_features_min_vox_adj_original) <- features_original
+rownames(clinical_features_min_vox_adj_original) <- patients_original
+
+assay_adjusted_original <- as.data.frame(t(clinical_features_min_vox_adj_original))
+```
+
+Finally, add a new `assay` to `rdr` object and save it:  
+
+```{r add_assay_original}
+# This code allows adding assays to rdr object
+assays(rdr_filt_original)$adjusted_min <- assay_adjusted_original
+```
+
+To recover adjusted data, use the `assay()` function with the index number 2:  
+
+```{r assay}
+# Normal data
+test <- assay(rdr_filt_original,1)
+
+# Adjusted data
+test2 <- assay(rdr_filt_original,2)
+```
+
+Save an `rdr` object with features from original images and with two assays (original and adjusted).  
+
+```{r save_data_adjusted}
+save(rdr_filt_original, file = "/Users/carla/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/radar_L1_Norm_adjusted_min.rda")
+```
+
+## Scaled PCA  
+
+Loading data and recovering adjusted values by **minimum pixel value**:  
+
+```{r table_adjusted_pca}
+load("/Users/carla/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/radar_L1_Norm_adjusted_min.rda")
+
+table_adjusted <- assay(rdr_filt_original, 2)
+
+rdr_filt_original
+```
+
+When performing PCA we can see that most of the points are overlapped, meaning that only few groups of raidomic features are providing information:  
+
+```{r pca_scaled}
+prComp_scaled <- prcomp(table_adjusted, scale = TRUE)
+
+# Plot two first principal components
+plot(prComp_scaled$x[, 1], prComp_scaled$x[, 2], xlab = "PC1", ylab = "PC2", main = "Scaled PCA of radiomic features from original images")
+```
+
+Now, we'll see that PC1 + PC2 are explaining most of the variability:  
+
+```{r check_PCA}
+# Check effect of principal components 
+summary(prComp_scaled)
+```
+
+```{r PCA_explained_variance_scaled}
+fviz_eig(prComp_scaled)
+```
+
+This is an optional plot to see how feature types are distributed between the groups formed by principal components:  
+
+```{r PCA_scaled_ggplot_feature_type}
+# Store PCA data frame for features
+PCA_scaled <- prComp_scaled$x
+
+# Create a data frame with feature types
+feature_names_PCA_scaled <- substr(rownames(PCA_scaled), 1, nchar(rownames(PCA_scaled))-9) 
+# Check row data of rdr object which as feature name and feature type
+ids <- rowData(rdr_filt_original)$feature_name %in% feature_names_PCA_scaled
+out <- cbind(feature_names_PCA_scaled,
+              rowData(rdr_filt_original)[ids, ]$feature_type)
+
+# Add feature type to a data frame with PCA results
+density.plot.PCA.scaled <- as.data.frame(PCA_scaled) %>%
+  mutate(Feature_type = out[,2])
+
+# Plot PC1 by feature type to find overlapped points
+ggplot(data = density.plot.PCA.scaled) +
+    geom_histogram(aes(x = PC1, fill = Feature_type)) +
+  labs(y = "Frequency", title = "PC1 of scaled radiomic features from original images", x = "PC1", fill = "Feature type") +
+  scale_fill_brewer(palette="PiYG")
+```
+
+Let's add principal components to `colData` of the `rdr` object. In this case, patients are rows in the `colData` table, so we need to add principal components for each patient, not per radiomic feature. These results are stored in the `rotation` section of the `prComp` object:  
+
+```{r add_PCA_rdr}
+# Save a data frame with PCA results for each patient (PCA by columns)
+PCA_scaled_patients <- prComp_scaled$rotation
+
+# Check patients are ordered in both data frames
+identical(rownames(PCA_scaled_patients), rownames(colData(rdr_filt_original)))
+
+# Add columns with PCAs
+colData(rdr_filt_original) <- cbind(colData(rdr_filt_original), PCA_scaled_patients)
+```
+
+Finally, let's save the `rdr` object with PCA computed:  
+
+```{r save_data_adjusted}
+save(rdr_filt_original, file = "/Users/carla/Documents/Master Bioinformatics UAB/Prácticas Radiomics/Radiomic features/Results_rfeatures/radar_L1_Norm_adjusted_min_PCA.rda")
+```
+
