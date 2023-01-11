@@ -1,0 +1,915 @@
+---
+title: "Exploratory Data Analysis"
+author: "Berta Franch Martínez"
+date: "January 2023"
+output: 
+  pdf_document: 
+    latex_engine: xelatex
+toc: yes    
+---
+
+\pagebreak
+```{r include=FALSE}
+knitr::opts_chunk$set(cache = TRUE)
+knitr::opts_chunk$set(comment = "")
+```
+
+```{r, echo=FALSE, warning=FALSE}
+library(DataExplorer)
+library(dlookr)
+library(longmixr)
+library(vtable)
+library(ConsensusClusterPlus)
+library(here)
+library(xlsx)
+library(kableExtra)
+library(BiocManager)
+library(ggfortify)
+library(BiocGenerics)
+library(compareGroups)
+library(tidyverse)
+library(dbplyr)
+library(amap)
+library(lme4)
+library(mixlm)
+library(lmerTest) 
+library(purrr)
+library(patchwork) 
+library(broom)
+library(cowplot)
+library(ggplot2)
+library(magick)
+library(car)
+library(devtools)
+library(factoextra)
+library(FactoMineR)
+library(skimr)
+library(janitor)
+library(rstatix)
+library(tibble)
+library(manta)
+library(ggbiplot)
+library(edgeR)
+library(EDASeq)
+library(pheatmap)
+```
+
+# Load data
+```{r}
+# Load data
+directory = getwd()
+load(paste0(directory, "/data/eset_blood.rda"))
+load(paste0(directory, "/data/eset_sputum.rda"))
+load(paste0(directory, "/data/radar_L1_Norm_scaled_adjusted_min_int_center_final.rda"))
+#load("/Users/bertafranchmartinez/Desktop/Màster uoc/TFM/results/pca1_results.rda")
+
+```
+
+## Radiomic data:
+
+```{r}
+# clean rownames
+rownames(rdr_L1_final) <-  sub(".original", "", rownames(rdr_L1_final))
+features_adj <- data.frame(t(assay(rdr_L1_final, "adjusted_min_int_center")))
+```
+
+## Clinical data:
+
+```{r}
+colData <- data.frame(colData(rdr_L1_final))
+# select variables of interest (categorical, numerical and strings) from ColData:
+interest_vars_cat <- c("SEX.t1", "SMOKER",  
+                   "CBRONCH",  #Chronic bronchitis phenotype flag
+                   "EMPH.t1", "EMPH.t3", # 	Individual has emphysema
+                   "RACE1.t1", "GOLDCD")
+
+interest_vars_num <- c("AGE", "BMI.t1", "BMI.t3",
+                        "SUPKYR", #Number of pack years smoked 
+                        "FEV1.t1", "FEV1.t3", # Forced expiratory volume (1 second) (L)
+                        "FEV1PSDS.t1", "FEV1PSDS.t3", #Post-dose FEV1 (L)
+                       "FEV1PSPC.t1", "FEV1PSPC.t3",
+                       "FEV1REV.t1", "FEV1REV.t3", 
+                       "FEVVCPD.t1", "FEVVCPD.t3",
+                       "FVCPSPC.t1", "FVCPSPC.t3", 
+                        "FRC", #	Functional residual capacity (L)
+                        "IC") # inspiratory capacity
+interest_char <- c("D_SUBJID", "CENTREID", "mask_id")
+
+# select and store as factor or numeric variables:
+colData <- colData %>% select(c(interest_vars_cat, interest_vars_num,
+                                interest_char)) %>% 
+  mutate_at(interest_vars_cat, as.factor) %>% 
+  mutate_at(interest_vars_num, as.numeric)
+
+# Compute change. Our variables of interest
+colData$FEV1.CH <- colData$FEV1.t1 - colData$FEV1.t3
+colData$FEV1PSDS.CH <- colData$FEV1PSDS.t1 - colData$FEV1PSDS.t3
+colData$FEV1PSPC.CH <- colData$FEV1PSPC.t1 - colData$FEV1PSPC.t3
+colData$FEV1REV.CH <- colData$FEV1REV.t1 - colData$FEV1REV.t3
+colData$FEVVCPD.CH <- colData$FEVVCPD.t1 - colData$FEVVCPD.t3
+colData$FVCPSPC.CH <- colData$FVCPSPC.t1 - colData$FVCPSPC.t3
+
+# select d_subjid from subjects with radiomic data and set as row names:
+d_subjid <- rdr_L1_final$D_SUBJID[rdr_L1_final$id %in% rownames(colData)]
+
+colData$c_subjid <- d_subjid
+colData$r_subijd <- rownames(colData)
+```
+
+
+## Transcriptomic data:
+
+```{r}
+# Read transcriptomic data
+blood <- as.data.frame(exprs(blood_eset))
+sputum <- as.data.frame(exprs(sputum_eset))
+```
+
+
+# General and missing data profile:
+
+Quickly visualize the structure of all dataframes:
+```{r}
+data_list <- list(features_adj, colData, blood, sputum)
+plot_str(data_list)
+```
+
+Describe structure of variables in data, as well as missing values. The quality of radiomic data was completely acceptable, as well as the genetic expression assay of sputum samples (both presented high rate of completed rows and low percentage of missing values). Regarding to phenotypical data (colData), only the 20% of rows were completed and the 16.3% of observations were missing values). Something similar happened with blood expression assay, in which just the 40.3% of rows were completed, and the 30% of total observations were missing. Thus, the missing profile of the variables in these two datasets were explored more deeply.   
+
+```{r}
+library(ggpubr)
+p1 <- plot_intro(features_adj,
+                        ggtheme = list(theme_light()))
+p2 <- plot_intro(colData,
+                        ggtheme = list(theme_light()))
+p3 <- plot_intro(blood,
+                        ggtheme = list(theme_light()))
+p4 <- plot_intro(sputum,
+                        ggtheme = list(theme_light()))
+
+pdf(paste0(directory, "/images/descriptive.pdf"), height = 6, width = 12)
+ggarrange(p1, p2, p3, p4, ncol = 2, nrow = 2, common.legend = TRUE,
+          labels = c("A", "B", "C", "D"))
+dev.off()
+head(features_adj)
+
+```
+
+Explore missing profile of all data:
+```{r}
+missing_p <- plot_missing(colData,
+                        ggtheme = list(theme_light()))
+missing_b <- plot_missing(blood,
+                        ggtheme = list(theme_light()))
+# store in pdf
+pdf(paste0(directory, "/images/missing_profile.pdf"), height = 5, width = 7)
+ggarrange(missing_p, missing_b, ncol = 2, nrow =1, legend = "bottom", 
+          common.legend = TRUE)
+dev.off()
+```
+In blood dataset, data from approximately 15000 genes was missing. This represented approximately the 30% of the total genes, so data quality was still acceptable. Regarding to phenotypical data, it could be clearly seen that the number of missing rows increased in data collected during the second period of time (t3) while data with less missing rate was the one collected during first period of time (as expected). Even though, the missing rate for variables from second period was approximately 24% and data was accepted and used. Moreover, two variables presented a high missing rate (73.43%): Inspiratory Capacity (IC) and Functional Residual Capacity (FRC). After removing these two variables, the percentage of complete rows increased to 66.8%. 
+
+```{r}
+# Remove IC and FRC
+colData <- drop_columns(colData, c("IC", "FRC"))
+plot_intro(colData)
+```
+
+# Phenotypical data
+
+## Univariate analysis
+
+```{r}
+#General statistics
+describe_general <- describe(colData)
+describe_general
+write.xlsx(describe_general, file = paste0(directory, "/results/descriptive_general.xlsx"))
+
+# Sort by skewness (left to right)
+
+#skewnsee_original <- colData %>%
+#  describe() %>%
+#  select(described_variables, skewness, mean, p25, p50, p75) %>% 
+#  filter(!is.na(skewness)) %>% 
+#  arrange(desc(abs(skewness)))
+
+# First distribution approach:
+# Check for ditributions in numeric data:
+
+# plot_normality(colData) -> this function show the current distribution and possible transformations  
+dim(colData)
+
+pdf(paste0(directory, "/images/histogram_distributions.pdf"), width = 14, height = 4)
+plot_histogram(drop_columns(colData, "CENTREID"), ncol = 11L, nrow = 2L, 
+title = "Distribution of numeric variables before transformation",
+                        ggtheme = list(theme_bw()))
+dev.off()
+# Transformation of variables which will be set as outcomes, in order to 
+# follow the more normal distribution the better
+sqrt_tf <- c("FEV1PSDS.t1", "FEV1PSDS.t3", "FEV1REV.t1",
+             "FEV1REV.t3", "FEVVCPD.t1", "FEVVCPD.t3", 
+             "FEV1.CH", "FEV1PSDS.CH", "FEV1PSPC.CH", "FVCPSPC.CH")
+log_tf <- c("FEV1.t1", "FEV1.t3")
+
+colData_trans <- update_columns(colData, sqrt_tf, function(x) sqrt(x))
+colData_trans <- update_columns(colData_trans, log_tf, function(x) log(x))
+
+pdf(paste0(directory, "/images/histogram_distributions_trans.pdf"), width = 14, height = 4)
+plot_histogram(drop_columns(colData_trans, "CENTREID"), ncol = 11L, nrow = 2L,
+               title = "Distribution of numeric variables after transformation",
+                        ggtheme = list(theme_bw()))
+dev.off()
+```
+
+### Distributions:
+
+We will focus on phenotipical data. Genetic and radiomic data will be deeply explored in future sections.
+
+```{r}
+# Bar plots for categorical variables
+pdf(paste0(directory, "/images/bar_plot.pdf"), width = 12, height = 3)
+plot_bar(colData_trans, ncol= 7L, title = "Barplot for categorical variables",
+                        ggtheme = list(theme_bw()))
+dev.off()
+pdf(paste0(directory, "/images/hist_plot.pdf"))
+
+# Histogram for continuos variables
+plot_histogram(colData_trans, ncol = 5L, nrow = 5L,
+                        ggtheme = list(theme_bw()))
+dev.off()
+```
+Just few subjects do not present emphysema and are not white. These categories will not be considered since there is not representation of all categories. 
+
+### Normality
+
+Since we will be applying regression models, the normality of data should be tested
+
+```{r}
+# Select variables we want to check for normality
+qq_data <- colData_trans[, c(interest_vars_num[1:16], "FEV1.CH", "FEV1PSDS.CH",
+                       "FEV1PSPC.CH", "FEV1REV.CH", "FEVVCPD.CH",
+                       "FVCPSPC.CH", "SUPKYR")]
+
+pdf(paste0(directory, "/images/log.pdf"), width = 14, height = 4)
+
+# plot qq-plots after transformation:
+plot_qq(qq_data, ncol =  11L, nrow = 2L,
+        title = "QQ-plot of numeric variables after transformation",
+                        ggtheme = list(theme_bw())) # skewness improved
+
+dev.off()
+
+
+pdf(paste0(directory, "/images/log_non_trans.pdf"), width = 14, height = 4)
+
+# qq-plots before transformation
+plot_qq(colData[, c(interest_vars_num[1:16], "FEV1.CH", "FEV1PSDS.CH",
+                       "FEV1PSPC.CH", "FEV1REV.CH", "FEVVCPD.CH",
+                       "FVCPSPC.CH", "SUPKYR")], ncol = 11L, nrow = 2L,
+        title = "QQ-plot of numeric variables before transformation",
+                        ggtheme = list(theme_bw()))
+dev.off()
+```
+
+Although some variables of interest presented a slightly positive skewed distribution (such as FEV1 or FEV1PSDS) this skewness was partially corrected using sqrt or log transformation. We accepted this data as normal distributed and it was used for the following analysis. 
+
+### PCA Analysis
+
+```{r}
+# For this analysis we will need to omit null values:
+pc_comp <- plot_prcomp(na.omit(colData), nrow = 1L, ncol = 5L, variance_cap = 0.9,
+                        ggtheme = list(theme_light()))
+pdf(paste0(directory, "/images/pca_pheno0.pdf"), width = 10)
+pc_comp$page_0
+dev.off()
+pdf(paste0(directory, "/images/pca_pheno.pdf"))
+pc_comp$page_1
+dev.off()
+pdf(paste0(directory, "/images/pca_pheno2.pdf"))
+pc_comp$page_2
+dev.off()
+```
+
+
+## Bivariate analysis 
+
+### Correlation analysis
+
+There are some variables which we already expect to be correlated, such as the same variables from different periods of time, or the distinct FEV1 related measures, since all of them are extracted from FEV1 raw measure. In the same way, as GOLD stages are established based on FEV1 measure, we expected them to be also correlated with FEV1 related measures.  
+```{r}
+pdf(paste0(directory, "/images/correlation_plot.pdf"))
+# perform correlation matrix
+plot_correlation(na.omit(colData), maxcat = 4L, title = "Matrix correlation of phenotypic variables")
+dev.off()
+
+# access to correlation coefficients and order dataset by them
+corr_data1 <- correlate(na.omit(colData))
+head(corr_data1[order(abs(corr_data1$coef_corr), decreasing  = T),])
+```
+
+Despite these expected correlations, some other relationship (less intense) could be identified such as the negative relationship between BMI and the change in FEV1 measures or the slightly positive relationship between white race category and FEV1 measures. Sex shows also correlation with some clinical measures. For example, being male appears to have positive relation with FEV1 measures while being woman shows negative relationship. 
+
+Let's make correlation plot without the expected correaltions:
+
+```{r}
+# Remove data from different periods of time:
+corr_data <- drop_columns(colData, c("FEV1.t1","FEV1.t3","FEV1PSDS.t1","FEV1PSDS.t3",
+             "FEV1PSPC.t1", "FEV1PSPC.t3", "FEV1REV.t1","FEV1REV.t3",
+             "FEVVCPD.t1",  "FEVVCPD.t3",  "FVCPSPC.t1",  "FVCPSPC.t3", "BMI.t3"))
+
+# compute correlation coefficient and store in an excel file
+corr_data2 <- correlate(corr_data)
+head(corr_data2[order(abs(corr_data2$coef_corr), decreasing  = T),])
+
+write.xlsx(corr_data2[order(abs(corr_data2$coef_corr), decreasing  = T),],
+           file = paste0(directory, "/results/EDA/correlation_list.xlsx"))
+
+# plot correlation matrix
+corr_data %>% correlate() %>% plot
+
+# Afterwards, we perform correlation matrix stratifying data by categorical variables:
+pdf(paste0(directory, "/images/category_corrplot.pdf"))
+corr_data %>%
+  group_by(SEX.t1) %>%
+  correlate() %>%
+  plot()
+
+corr_data %>%
+  group_by(GOLDCD) %>%
+  correlate() %>%
+  plot()
+
+corr_data %>%
+  group_by(CBRONCH) %>%
+  correlate() %>%
+  plot()
+dev.off()
+```
+
+
+We also performed boxplots and scatterplots in order to further explore the relations between variables:
+
+```{r}
+# selection of interest variables
+target_variables <- c("FEV1.CH","FEV1PSDS.CH", "FEV1PSPC.CH", "FEV1REV.CH", 
+                    "FEVVCPD.CH",  "FVCPSPC.CH")
+
+cat_interest <- c("SEX.t1", "SMOKER", "CBRONCH", "GOLDCD")
+
+# store a column with subject id
+rownames(colData) <- colData$r_subijd
+
+# Select variables we want to relate with change in clinical measures. For 
+# categorical variables, we perform boxplots to see how they are distributed
+pdf(paste0(directory, "/results/EDA/boxplot_interest.pdf"))
+for (i in 1:length(cat_interest)) {
+  cat = cat_interest[i]
+  data <- colData[, c(cat, names(colData)[12:29])]
+  plot_boxplot(na.omit(data), by = cat,  ncol = 6L, nrow = 3L)
+}
+dev.off()
+
+#  For numerical variables, we perform boxplots to see how they are distributed
+num_interest <-names(colData)[8:10]
+pdf(paste0(directory, "/images/scatterplot_interest.pdf"))
+for (i in 1:length(num_interest)) {
+  num = num_interest[i]
+  data <- colData[, c(num, names(colData)[12:29])]
+  plot_scatterplot(na.omit(data), by = num, sampled_rows = 1000L,  ncol = 6L, nrow = 3L)
+}
+dev.off()
+```
+
+# Blood transcriptomic data
+
+Expression array counts:
+
+```{r}
+# Access to counts and phenotypical data
+norm_counts <- exprs(blood_eset)
+phenoData(blood_eset)
+
+# Check sum of each column is not equal to 10^6 since values are RPKM normalized
+head(colSums(norm_counts, na.rm=TRUE))
+norm_counts[1:5,1:5] 
+```
+
+
+```{r}
+# access to phenoData and change internal structure:
+df <- pData(blood_eset)
+df <- df %>%  mutate_at("D_SUBJID", as.character)  %>%
+    mutate_at(c("SEX", "TRTGRP", "GOLDCD", "CBRONCH", "COUGH", 
+                          "SMOKER", "GROUP", "SUSMHS", "SUSMHSCD"), 
+              as.factor) %>%
+    mutate_at(names(df[21:39]), as.factor)
+pData(blood_eset) <- df
+```
+
+Prepare clinical outcomes (compute the change in variable responses):
+
+```{r}
+# 1. Data preparation
+# working with data without transformation
+load(paste0(directory, "/data/colData_def.rda"))
+# select variables of interest
+
+clinicalData <- colData_raw %>% dplyr::select(c(D_SUBJID, FEV1.CH, FEV1REV.CH, 
+                                          FEV1PSPC.CH, FEV1PSDS.CH, FEVVCPD.CH,
+                                          FVCPSPC.CH))
+
+colData_prov <- pData(blood_eset)
+
+# merge both datasets by subject id
+colData <- merge(colData_prov, clinicalData, by = "D_SUBJID",
+                  all.x = TRUE)
+colData <- colData %>% drop_na(c("AGE", "SEX", "BMI", "FEV1.CH", "FEV1PSDS.CH",
+                                 "FEV1PSPC.CH", "FEV1REV.CH", "FEVVCPD.CH",
+                                 "FVCPSPC.CH"))
+
+# Access to count data for subjects that appear in clinicalData dataset:
+countData <- norm_counts[,sampleNames(blood_eset) %in% colData$D_SUBJID == TRUE]
+
+# Remove genes with NA 
+countData <- countData[complete.cases(countData),]
+
+# Data dimensions:
+dim(countData)
+dim(colData)
+
+# filter:
+keep <- filterByExpr(countData)
+keep[keep == FALSE]
+# alla genes were selected
+
+# na fraction:
+table(is.na(countData))
+```
+
+In order to explore genetic data, although we already know how this data will be distributed, we perform histograms with sputum and blood samples:
+```{r}
+plot_histogram(blood, ncol = 5L, nrow = 5L)
+plot_histogram(sputum, ncol = 5L, nrow = 5L)
+dev.off()
+```
+
+## Processing (checking the process) of the read counts table
+
+We will first explore the read counts data in order to identify patterns or useful information: 
+Assuming that between two samples, most genes are not differential expressed, the distribution of the difference of log-ratios between the samples should be centered around 0 when data is correctly normalized. We thus examine the distributions for the 1st and 2nd sample under normalization
+
+```{r}
+dif_samp1 <- log2(countData[, 1] / countData[, 2])
+dif_samp25 <- log2(countData[, 25] / countData[, 26])
+dif_samp50 <- log2(countData[, 50] / countData[, 51])
+
+
+par(mfrow=c(2,2))
+hist(dif_samp1, xlab="log2-ratio", main="Total reads")
+abline(v=0, col="red")
+hist(dif_samp25, xlab="log2-ratio", main="Total reads")
+abline(v=0, col="red")
+hist(dif_samp50, xlab="log2-ratio", main="Total reads")
+abline(v=0, col="red")
+
+
+# MA PLOT
+
+par(mfrow=c(2,2))
+# NA omit for this plot:
+#pdf("ma_plotsblood.pdf", width = 8, height = 4)
+maPlot(countData[,1], countData[,2], pch=19, cex=.5, ylim=c(-5,5), 
+       allCol="darkgray", lowess=TRUE, 
+       xlab=expression( A == log[2] (sqrt(Sample1 %.% Sample2)) ), 
+       ylab=expression(M == log[2](Sample1/Sample2))) 
+grid(col="black")
+title("RPKM data")
+
+maPlot(countData[,25], countData[,26], pch=19, cex=.5, ylim=c(-5,5), 
+       allCol="darkgray", lowess=TRUE, 
+       xlab=expression( A == log[2] (sqrt(Sample25 %.% Sample26)) ), 
+       ylab=expression(M == log[2](Sample25/Sample26))) 
+grid(col="black")
+title("RPKM data")
+maPlot(countData[,50], countData[,51], pch=19, cex=.5, ylim=c(-5,5), 
+       allCol="darkgray", lowess=TRUE, 
+       xlab=expression( A == log[2] (sqrt(Sample50 %.% Sample51)) ), 
+       ylab=expression(M == log[2](Sample50/Sample51))) 
+grid(col="black")
+title("RPKM data")
+
+```
+
+The red line shows the expected M-values as a function of A-values. We can see that for almost all genes the distribution of the difference between samples is nearly zero and data is similarly distributed across the horizontal line.
+
+```{r}
+# Boxplot
+pdf(paste0(directory, "/images/boxplots_blood.pdf"), height = 6, width = 10)
+dgeObj <- DGEList(round(countData))
+names(dgeObj)
+
+# Get log2 counts per million
+logcounts <- cpm(dgeObj,log=TRUE)
+
+# Check distributions of samples using boxplots
+boxplot(logcounts, ylab="Log2-CPM",las=2, xlab="", cex.axis=0.8, 
+        main="Boxplot of logCPMs (blood samples)")
+# add a blue horizontal line that corresponds to the median logCPM
+abline(h=median(logcounts), col="blue")
+
+# Plot RLE
+plotRLE(countData, outline=FALSE, 
+        ylim=c(-2, 2),
+        main = 'Normalized Counts (RPKM) in blood samples')
+dev.off()
+```
+
+Here we can see that all count distributions are not very different. 
+
+Analyze library sizes:
+
+```{r}
+head(colSums(countData, na.rm=TRUE))
+
+# store library sizes, which corresponds to the total number of counts:
+lib_size <- colSums(countData, na.rm = TRUE)
+
+barplot(lib_size, names = colnames(countData))
+mtext(side = 1, text = "Samples", line = 4)
+mtext(side = 2, text = "Library size (millions)", line = 3)
+title("Barplot of library sizes of blood samples")
+```
+
+As we can see, there are not big differences in library sizes, but they are not all equal. 
+
+```{r}
+# Test normality of RPKM values and its log ratio
+shap.RPKM <- shapiro.test(countData[2,])
+shap.RPKM
+log_Data <- log2(countData) 
+shap.log <- shapiro.test(log_Data[2,])
+shap.log
+```
+
+As expected, the raw data do not have a normal distribution, but the log data do. 
+
+ **Clustering**
+
+This process is very time consuming. We just select the 100 most variable genes among the samples in order to have an approximate idea about the distribution:
+
+```{r}
+#compute the variance of each gene across samples
+V <- apply(countData, 1, var)
+
+#sort the results by variance in decreasing order and select the top 100 genes 
+selectedGenes <- names(V[order(V, decreasing = T)][1:100])
+
+# heatmap of most variable genes
+heatmap <- pheatmap(countData[selectedGenes,],
+                    scale = 'row', show_rownames = FALSE)
+```
+
+## PCA
+
+Principal Component analysis with some potential grouping variables, such as GOLDCD, SEX, Chronic Bronchitis or Chronic Cough: 
+
+```{r, out.width="70%",fig.align='center'}
+#transpose the matrix
+M <- t(norm_counts[selectedGenes,])
+# transform the counts to log2 scale 
+M <- log2(M + 1)
+#compute PCA 
+pcaResults <- prcomp(M)
+
+# Explore some grouping variables
+par(mfrow = c(2,2))
+autoplot(pcaResults, data = pData(blood_eset), colour = 'GOLDCD')
+autoplot(pcaResults, data = pData(blood_eset), colour = 'SEX')
+autoplot(pcaResults, data = pData(blood_eset), colour = 'CBRONCH')
+autoplot(pcaResults, data = pData(blood_eset), colour = 'GROUP')
+```
+
+We do not identify any grouping effect by any of these variables.
+
+## Heatmap and dendogram
+
+```{r}
+#countData_blood <- countData
+#save(countData_blood, file = "countData_blood.rda")
+
+# Compute distance matrix between samples
+sampleDists <- dist(t(countData))
+head(sampleDists)
+# Compute heatmap using factoextra library 
+pdf(paste0(directory, "/images/heatmap_dist_blood.pdf"))
+fviz_dist(sampleDists, show_labels = TRUE, lab_size = 4)
+dev.off()
+# Compute dendrogram between samples:
+plot(hclust(sampleDists),labels = colnames(log_Data),
+     main = "Dendrogram of sample distances", cex=0.8)
+```
+ 
+
+# Sputum genetic data
+
+First of all, we will prepare data:
+
+```{r}
+# Access to counts and phenotypical data
+norm_counts <- exprs(sputum_eset)
+phenoData(sputum_eset)
+
+# Check sum of each column is not equal to 10^6 since values are RPKM normalized
+head(colSums(norm_counts, na.rm=TRUE))
+norm_counts[1:5,1:5] 
+
+# access to phenoData and change internal structure:
+df <- pData(sputum_eset)
+df <- df %>%  mutate_at("D_SUBJID", as.character)  %>%
+    mutate_at(c("SEX", "TRTGRP", "GOLDCD", "CBRONCH", "COUGH", 
+                          "SMOKER", "GROUP", "SUSMHS", "SUSMHSCD"), 
+              as.factor) %>%
+    mutate_at(names(df[21:39]), as.factor)
+pData(sputum_eset) <- df
+```
+
+Prepare clinical outcomes (compute the change in variable responses):
+
+```{r}
+# 1. Data preparation
+# add clinical outcomes. Compute change for FEV1 measures
+clinicalData <- data.frame(colData(rdr_L1_final))
+
+clinicalData$FEV1.CH <- clinicalData$FEV1.t1 - clinicalData$FEV1.t3
+clinicalData$FEV1PSDS.CH <- clinicalData$FEV1PSDS.t1 - clinicalData$FEV1PSDS.t3
+clinicalData$FEV1PSPC.CH <- clinicalData$FEV1PSPC.t1 - clinicalData$FEV1PSPC.t3
+clinicalData$FEV1REV.CH <- clinicalData$FEV1REV.t1 - clinicalData$FEV1REV.t3
+clinicalData$FEVVCPD.CH <- clinicalData$FEVVCPD.t1 - clinicalData$FEVVCPD.t3
+clinicalData$FVCPSPC.CH <- clinicalData$FVCPSPC.t1 - clinicalData$FVCPSPC.t3
+
+# select variables of interest
+clinicalData <- clinicalData %>% dplyr::select(c(D_SUBJID, FEV1.CH, FEV1REV.CH, 
+                                          FEV1PSPC.CH, FEV1PSDS.CH, FEVVCPD.CH,
+                                          FVCPSPC.CH))
+
+colData_prov <- pData(sputum_eset)
+
+# merge both datasets by subject id
+colData <- merge(colData_prov, clinicalData, by = "D_SUBJID",
+                  all.x = TRUE)
+colData <- colData %>% drop_na(c("AGE", "SEX", "BMI", "FEV1.CH", "FEV1PSDS.CH",
+                                 "FEV1PSPC.CH", "FEV1REV.CH", "FEVVCPD.CH",
+                                 "FVCPSPC.CH"))
+
+# Access to count data for subjects that appear in clinicalData dataset:
+countData <- norm_counts[,sampleNames(sputum_eset) %in% colData$D_SUBJID == TRUE]
+
+# Replace negative values to NA 
+countData <- replace(countData, which(countData< 0), NA)
+# Remove genes with NA 
+countData <- countData[complete.cases(countData),]
+
+# Data dimensions:
+dim(countData)
+dim(colData)
+
+# filter:
+keep <- filterByExpr(countData)
+```
+
+## Processing (checking the process) of the read counts table
+
+We will first explore the read counts data in order to identify patterns or useful information: 
+Assuming that between two samples, most genes are not differentially expressed, the distribution of the difference of log-ratios between the samples should be centered around 0 when data is correctly normalized. We thus examine the distributions for the 1st and 2nd sample under normalization
+
+```{r}
+dif_samp1 <- log2(countData[, 1] / countData[, 2])
+dif_samp25 <- log2(countData[, 25] / countData[, 26])
+dif_samp50 <- log2(countData[, 50] / countData[, 51])
+dif_samp75 <- log2(countData[, 87] / countData[, 88])
+
+par(mfrow=c(2,2))
+hist(dif_samp1, xlab="log2-ratio", main="Total reads")
+abline(v=0, col="red")
+hist(dif_samp25, xlab="log2-ratio", main="Total reads")
+abline(v=0, col="red")
+hist(dif_samp50, xlab="log2-ratio", main="Total reads")
+abline(v=0, col="red")
+hist(dif_samp75, xlab="log2-ratio", main="Total reads")
+abline(v=0, col="red")
+
+# MA PLOT
+
+par(mfrow=c(2,2))
+# NA omit for this plot:
+#pdf("ma_plotsputum.pdf", width = 8, height = 4)
+maPlot(countData[,1], countData[,2], pch=19, cex=.5, ylim=c(-5,5), 
+       allCol="darkgray", lowess=TRUE, 
+       xlab=expression( A == log[2] (sqrt(Sample1 %.% Sample2)) ), 
+       ylab=expression(M == log[2](Sample1/Sample2))) 
+grid(col="black")
+title("RPKM data")
+
+maPlot(countData[,25], countData[,26], pch=19, cex=.5, ylim=c(-5,5), 
+       allCol="darkgray", lowess=TRUE, 
+       xlab=expression( A == log[2] (sqrt(Sample25 %.% Sample26)) ), 
+       ylab=expression(M == log[2](Sample25/Sample26))) 
+grid(col="black")
+title("RPKM data")
+maPlot(countData[,50], countData[,51], pch=19, cex=.5, ylim=c(-5,5), 
+       allCol="darkgray", lowess=TRUE, 
+       xlab=expression( A == log[2] (sqrt(Sample50 %.% Sample51)) ), 
+       ylab=expression(M == log[2](Sample50/Sample51))) 
+grid(col="black")
+title("RPKM data")
+maPlot(countData[,92], countData[,93], pch=19, cex=.5, ylim=c(-5,5), 
+       allCol="darkgray", lowess=TRUE, 
+       xlab=expression( A == log[2] (sqrt(Sample100 %.% Sample101)) ), 
+       ylab=expression(M == log[2](Sample100/Sample101))) 
+grid(col="black")
+title("RPKM data")
+```
+
+The red line shows the expected M-values as a function of A-values. We can see that for almost all genes the distribution of the difference between samples is nearly zero and data is similarly distributed across the horizontal line
+
+```{r}
+# Boxplot
+pdf("boxplots_sputum.pdf", height = 6, width = 10)
+dgeObj <- DGEList(round(countData))
+names(dgeObj)
+# Get log2 counts per million
+logcounts <- cpm(dgeObj,log=TRUE)
+# Check distributions of samples using boxplots
+boxplot(logcounts, ylab="Log2-CPM",las=2, xlab="", cex.axis=0.8, 
+        main="Boxplot of logCPMs (sputum samples)")
+# add a blue horizontal line that corresponds to the median logCPM
+abline(h=median(logcounts), col="blue")
+
+# Plot RLE
+plotRLE(countData, outline=FALSE, 
+        ylim=c(-2, 2),
+        main = 'Normalized Counts (RPKM) in sputum samples')
+dev.off()
+```
+
+Here we can see that all count distributions are not very different. 
+
+Analyze library sizes:
+
+```{r}
+head(colSums(countData, na.rm=TRUE))
+# store library sizes:
+lib_size <- colSums(countData, na.rm = TRUE)
+
+barplot(lib_size, names = colnames(countData))
+mtext(side = 1, text = "Samples", line = 4)
+mtext(side = 2, text = "Library size (millions)", line = 3)
+title("Barplot of library sizes of sputum samples")
+```
+
+There are not big differences in library sizes, but they are not all equal. 
+
+```{r}
+# Test normality of RPKM values and its log ratio
+shap.RPKM <- shapiro.test(countData[3,])
+shap.RPKM
+log_Data <- log2(countData) 
+shap.log <- shapiro.test(log_Data[3,])
+shap.log
+```
+
+
+## Clustering
+
+Time consuming. We just select the 100 most variable genes among the samples in order to have an approximate idea about the distribution:
+
+```{r}
+#compute the variance of each gene across samples
+V <- apply(countData, 1, var)
+#sort the results by variance in decreasing order 
+#and select the top 100 genes 
+selectedGenes <- names(V[order(V, decreasing = T)][1:100])
+
+# heatmap of most variable genes
+heatmap <- pheatmap(countData[selectedGenes,],
+                    scale = 'row', show_rownames = FALSE)
+```
+
+## PCA
+
+Principal Component analysis with some potential grouping variables, such as GOLDCD, SEX, Chronic Bronchitis or Chronic Cough: 
+
+```{r, out.width="70%",fig.align='center'}
+#transpose the matrix
+M <- t(norm_counts[selectedGenes,])
+# transform the counts to log2 scale 
+M <- log2(M + 1)
+#compute PCA 
+pcaResults <- prcomp(M)
+
+# Explore some grouping variables
+par(mfrow = c(2,2))
+autoplot(pcaResults, data = pData(sputum_eset), colour = 'GOLDCD')
+autoplot(pcaResults, data = pData(sputum_eset), colour = 'SEX')
+autoplot(pcaResults, data = pData(sputum_eset), colour = 'CBRONCH')
+#autoplot(pcaResults, data = pData(sputum_eset), colour = 'GROUP') 
+```
+
+We do not identify any grouping effect by any of these variables.
+
+## Heatmap and dendogram
+
+```{r}
+#countData_sputum <- countData
+#save(countData_sputum, file = "countData_sputum.rda")
+
+# Compute distance matrix between samples
+sampleDists <- dist(t(countData))
+head(sampleDists)
+# Compute heatmap using factoextra library 
+pdf(paste0(directory, "/images/heatmap_dist_sputum.pdf"))
+fviz_dist(sampleDists, show_labels = TRUE, lab_size = 4)
+dev.off()
+# Compute dendrogram between samples:
+plot(hclust(sampleDists),labels = colnames(log_Data),
+     main = "Dendrogram of sample distances", cex=0.8)
+```
+ 
+
+# Comparation blood vs sputum
+
+In order to better detect differences, we will compare data from subjects with both blood and sputum samples
+
+```{r}
+load(paste0(directory, "/data/countData_sputum.rda"))
+load(paste0(directory, "/data/countData_blood.rda"))
+
+# Select common samples
+common_samples <- colnames(countData_sputum)[which(colnames(countData_blood) %in% colnames(countData_sputum))]
+common_sputum <- countData_sputum[,common_samples]
+common_samples2 <- colnames(countData_blood)[which(colnames(countData_sputum) %in% colnames(countData_blood))]
+common_blood <- countData_blood[,common_samples2[1:85]]
+
+# Select common genes
+common_genes <- rownames(countData_sputum)[which(rownames(countData_blood) %in% rownames(countData_sputum))]
+common_sputum <- common_sputum[common_genes,]
+common_genes2 <- rownames(countData_blood)[which(rownames(countData_sputum) %in% rownames(countData_blood))]
+common_genes2 <- na.omit(common_genes2)
+common_blood <- countData_blood[common_genes2,]
+
+# Compute distance matrix between samples
+sampleDists_b <- as.matrix(dist(t(common_blood)))
+sampleDists_s <- as.matrix(dist(t(common_sputum)))
+
+# Compute heatmap 
+pdf(paste0(directory, "/images/heatmap_dist_commonB.pdf"))
+heatmap(sampleDists_b, Rowv = NULL, main = "Distance in blood samples")
+pdf(paste0(directory, "/images/heatmap_dist_commonS.pdf"))
+heatmap(sampleDists_s, Rowv = NULL, main = "Distance in sputum samples")
+dev.off()
+```
+
+
+# Radiomic data
+
+```{r}
+head(colnames(rdr_L1_final))[1:3]
+
+#check for NA
+anyNA(rdr_L1_final)
+```
+
+## Correlation matrix
+
+The next step will be to explore the relation between radiomic features:
+
+```{r}
+# Radiomic features correlation plot:
+pdf(paste0(directory, "/images/correlation_radiomic.pdf"), height = 5, width = 5)
+corr_clean <- features_adj
+names(corr_clean) <- seq(1:ncol(corr_clean))
+plot_correlation(corr_clean,  ggtheme = theme_minimal(),
+  theme_config = list(legend.position = "bottom", axis.text.x = element_text(angle =
+    90)), title = "Correlation matrix of radiomic features")
+dev.off()
+``` 
+
+A more exhaustive exploratory analysis of radiomic data is performed in the code file: `Radiomic_data.Rmd`.  
+
+# Create report
+
+The following function will create an automatic report to quickly explore phenotypic data:
+
+```{r, eval=FALSE}
+#create_report(colData)
+```
+
+Save files cleaned in rda files:
+
+```{r}
+colData_raw <- colData
+# save colData with some variables transformed
+save(colData_raw, file = paste0(directory, "/data/colData_def.rda"))
+save(colData_trans, file =paste0(directory, "/data/colData_trans.rda"))
+```
+

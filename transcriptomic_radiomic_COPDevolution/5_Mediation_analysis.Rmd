@@ -1,0 +1,218 @@
+---
+title: "Mediation analysis"
+author: "Berta Franch Martínez"
+date: "January 2023"
+output: 
+  pdf_document: 
+    latex_engine: xelatex
+toc: yes
+toc_depth: 3    
+---
+
+```{r libraries, message=FALSE, echo=FALSE, warning=FALSE}
+library(longmixr)
+library(vtable)
+library(xlsx)
+library(kableExtra)
+library(BiocManager)
+library(ggfortify)
+library(BiocGenerics)
+library(tidyverse)
+library(dbplyr)
+library(amap)
+library(lme4)
+library(mixlm)
+library(lmerTest)
+library(purrr)
+library(patchwork) # v. 1.1.1
+library(broom)
+library(cowplot)
+library(ggplot2)
+library(magick)
+library(car)
+library(devtools)
+library(factoextra)
+library(FactoMineR)
+library(skimr)
+library(janitor)
+library(rstatix)
+library(tibble)
+library(manta)
+library(ggbiplot)
+library(Biobase)
+library(BiocManager)
+library(oligo)
+library(affy)
+library(genefilter)
+library(ggplot2)
+library(ggrepel)
+library(XML)
+library(here)
+library(pheatmap)
+library(stats)
+library(ggplot2)
+library(ggfortify)
+library(dbplyr)
+library(tidyverse)
+library(SummarizedExperiment)
+library(edgeR)
+library(GLDEX)
+library(sva)
+library(dplyr)
+library(EDASeq)
+library(biomaRt)
+library(clusterProfiler)
+library(GOstats)
+library(enrichplot)
+library(factoextra)
+library(ggpubr)
+library(mediation)
+library(car)
+library(misty)
+```
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(cache = TRUE)
+knitr::opts_chunk$set(comment = "")
+```
+
+\pagebreak
+
+```{r}
+directory = getwd()
+# load data:
+load(paste0(directory, "/data/eset_blood.rda"))
+load(paste0(directory, "/data/radar_L1_Norm_scaled_adjusted_min_int_center_final.rda"))
+
+# load results from radiomic data:
+load(paste0(directory, "/data/assay_features_clust.rda"))
+load(paste0(directory, "/data/clustering_coldata.rda"))
+load(paste0(directory, "/data/model_data.rda"))
+
+# load results from transcriptomic data (voom: fit_sva_fev1)
+load(paste0(directory, "/data/sva_fev1_voom.rda"))
+```
+
+## Mediation analysis:
+
+### Data preparation:
+
+We want a dataset with clinical, radiomic and genetic data:
+
+```{r, eval=TRUE}
+head(model_data)[1:5,1:5]
+# select d_subjid from subjects with radiomic data and set as row names:
+d_subjid <- rdr_L1_final$D_SUBJID[rdr_L1_final$id %in% rownames(model_data)]
+
+rownames(model_data)[1:length(d_subjid)] <- d_subjid
+
+# Compute change in FEV1:
+model_data$FEV1.ch <- model_data$FEV1.t1 - model_data$FEV1.t3
+```
+
+As transcriptomic data, we will just study the genes that we found to be significantly associated with FEV1:
+
+```{r}
+topTab_fev1 <- topTable(fit_sva_fev1, coef = 2)
+# select gens with a significant adjusted p-value 
+mask <- rownames(topTab_fev1)[topTab_fev1$adj.P.Val< 0.05]
+
+# These genes will be the ones used for mediation analysis:
+mask
+
+# Select data from this genes
+genetic_data <- as.data.frame(exprs(blood_eset))
+genetic_data <- genetic_data[mask,]
+genetic_data <- as.data.frame(t(genetic_data))
+```
+
+For this analysis, we'll use subjects with complete data in both genetic and radiomic data: 
+
+```{r}
+# Select data:
+complete_subj <- which(rownames(model_data) %in% rownames(genetic_data))
+model_data <- model_data[complete_subj,]
+
+complete_subj <- which(rownames(genetic_data) %in% rownames(model_data))
+genetic_data <- genetic_data[complete_subj,]
+head(model_data)[1:5,1:5]
+head(genetic_data)[1:5,1:5]
+
+model_data <- cbind(genetic_data, model_data)
+```
+
+### Step 1: Radiomic -> Clinical
+
+Determine if there is relationship between radiomic clusters and clinical outcome: 
+
+Since we already detected collinearity between clusters 4 and 5, we will look at it carefully and study the VIF factors of the model. Moreover, we will use the squared measure of FEV1.ch because is the one that fits better to a normal distribution 
+```{r}
+# All together:
+model_data$FEV1.CH_sqrt <- sqrt(model_data$FEV1.CH)
+
+mod_all <- lm(FEV1.CH_sqrt ~  AGE + SEX.t1 + 
+                pcaC1 + pcaC2 + pcaC3 + pcaC4 +
+                pcaC5 + pcaC6 , data=model_data)
+summary(mod_all)
+
+car::vif(mod_all)
+```
+
+In this case, the higher VIF value is presented by pcaC4. Thus, this will be the measure removed from analysis:
+
+```{r}
+# Perform the analysis and check for VIF, which resulted corrected
+mod_all <- lm(FEV1.CH_sqrt ~  AGE + SEX.t1 + pcaC1 + pcaC2 + pcaC3 + pcaC5 
+                + pcaC6 , data=model_data)
+summary(mod_all)
+
+car::vif(mod_all)
+```
+
+
+### Step 2: Radiomic -> Genetic
+
+The purpose of this step will be to determine if exists a relation between radiomic features and genetic expression. If not, we will just accept that radiomic features and genetic expression are two non-related variables which affect the change in FEV1 independently, but if there is indeed relationship between radiomic and genetic data, a mediation analysis will make sense.
+
+Since we have found 8 genes significantly related with the change in FEV1, we will perform an analysis per each. In this case, as we are working with genetic data obtained through RNAseq, 
+
+```{r, warning=FALSE}
+# set a function
+lm_fun = function(response) {
+  form = reformulate(c("AGE", "SEX.t1", "pcaC1", "pcaC2", "pcaC3", "pcaC5",
+                        "pcaC6"), 
+                     response = response)
+  lm(form, data = model_data)
+}
+
+
+# select variables
+response_vars <- mask %>% purrr::set_names()
+
+# apply function 
+models_gene = response_vars %>% map(lm_fun)
+
+# show model's summary
+(models_sum = models_gene %>% map(summary)) 
+```
+
+We detected significant association between gene 216559_x_at and cluster 5. 
+
+### Step 3: Radiomic + Genetic -> Clinical
+
+We have found 1 clusters significantly related with one gene, we will just use these terms for the following step: 
+
+Cluster 3 and 6 (nearly) significantly related with FEV1. 
+Cluster 5 significantly related with 216559_x_at and cluster 6 nearly too (pval = 0.09). 
+
+```{r}
+# change name of gene to avoid problems
+
+model_data$gene <- model_data$`216559_x_at`
+model.Y <- lm(FEV1.CH_sqrt ~ + AGE + SEX.t1 + pcaC1 + pcaC2 + pcaC3 + 
+                pcaC5 + pcaC6 + gene,
+              data = model_data)
+summary(model.Y)
+```
+
+Once the genetic effect is added to the model, the significance of the effect of radiomic clusters increases. In order to confirm mediation effect it should decrease. Thus, any mediation effect can be proved. 

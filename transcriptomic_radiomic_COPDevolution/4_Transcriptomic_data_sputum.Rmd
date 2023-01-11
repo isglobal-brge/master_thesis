@@ -1,0 +1,985 @@
+---
+title: "Transcriptomic data processing and analysis (sputum samples)"
+author: "Berta Franch Martínez"
+date: "January 2023"
+output: 
+  pdf_document: 
+    latex_engine: xelatex
+toc: yes
+---
+
+```{r include=FALSE}
+knitr::opts_chunk$set(cache = TRUE)
+knitr::opts_chunk$set(comment = "")
+```
+```{r, libraries,include=FALSE, echo=FALSE}
+library(Biobase)
+library(BiocManager)
+library(pd.clariom.s.human)
+library(oligo)
+library(affy)
+library(genefilter)
+library(ggplot2)
+library(ggrepel)
+library(XML)
+library(here)
+library(pheatmap)
+library(stats)
+library(ggplot2)
+library(ggfortify)
+library(dbplyr)
+library(tidyverse)
+library(SummarizedExperiment)
+library(edgeR)
+library(GLDEX)
+library(sva)
+library(hgu133plus2.db)
+library(dplyr)
+library(EnhancedVolcano)
+library(EDASeq)
+library(hgu133plus2.db)
+library(org.Hs.eg.db)
+library(annotate)
+library(biomaRt)
+library(clusterProfiler)
+library(GOstats)
+library(enrichplot)
+library(factoextra)
+```
+
+\pagebreak
+
+```{r, echo=FALSE}
+# Workplace preparation:
+directory = getwd()
+workingDir <- getwd()
+if (!file.exists("data")) system("mkdir data")
+if (!file.exists("results")) system("mkdir results")
+dataDir <-file.path(workingDir, "data")
+resultsDir <- file.path(workingDir, "results")
+setwd(workingDir)
+```
+
+# SPUTUM
+
+## Data preparation: 
+
+The transcription profile of a particular gene follows from counting the number of times the transcripts of the genes were mapped by sequenced reads. The main goal is to discover the genes that are differentially expressed between individuals.  
+In RNA-seq analysis, we deal with the number of reads (counts) that map to the biological feature of interest (gene, transcript, exon, etc.). The count number depends linearly on the abundance of the target’s transcription because the sequencing of RNA is a direct measure of transcription.
+
+Load data: 
+```{r}
+load(paste0(directory, "/data/eset_sputum.rda"))
+sputum_eset
+load(paste0(directory, "/data/radar_L1_Norm_scaled_adjusted_min_int_center_final.rda"))
+```
+
+Since our data it is already normalized by the total length of the sequence fragments, we will consider the expression array such as the normalized counts:
+
+```{r}
+# Access to counts and phenotypical data
+norm_counts <- exprs(sputum_eset)
+phenoData(sputum_eset)
+
+# Check sum of each column is not equal to 10^6 since values are RPKM normalized
+head(colSums(norm_counts, na.rm=TRUE))
+norm_counts[1:5,1:5] 
+```
+
+
+```{r}
+# access to phenoData and change internal structure:
+df <- pData(sputum_eset)
+df <- df %>%  mutate_at("D_SUBJID", as.character)  %>%
+    mutate_at(c("SEX", "TRTGRP", "GOLDCD", "CBRONCH", "COUGH", 
+                          "SMOKER", "GROUP", "SUSMHS", "SUSMHSCD"), 
+              as.factor) %>%
+    mutate_at(names(df[21:39]), as.factor)
+pData(sputum_eset) <- df
+```
+
+Prepare clinical outcomes (compute the change in variable responses):
+
+```{r}
+# 1. Data preparation
+# add clinical outcomes. Compute change for FEV1 measures
+clinicalData <- data.frame(colData(rdr_L1_final))
+
+clinicalData$FEV1.CH <- clinicalData$FEV1.t1 - clinicalData$FEV1.t3
+clinicalData$FEV1PSDS.CH <- clinicalData$FEV1PSDS.t1 - clinicalData$FEV1PSDS.t3
+clinicalData$FEV1PSPC.CH <- clinicalData$FEV1PSPC.t1 - clinicalData$FEV1PSPC.t3
+clinicalData$FEV1REV.CH <- clinicalData$FEV1REV.t1 - clinicalData$FEV1REV.t3
+clinicalData$FEVVCPD.CH <- clinicalData$FEVVCPD.t1 - clinicalData$FEVVCPD.t3
+clinicalData$FVCPSPC.CH <- clinicalData$FVCPSPC.t1 - clinicalData$FVCPSPC.t3
+
+# select variables of interest
+clinicalData <- clinicalData %>% dplyr::select(c(D_SUBJID, FEV1.CH, FEV1REV.CH, 
+                                          FEV1PSPC.CH, FEV1PSDS.CH, FEVVCPD.CH,
+                                          FVCPSPC.CH))
+
+colData_prov <- pData(sputum_eset)
+
+# merge both datasets by subject id
+colData <- merge(colData_prov, clinicalData, by = "D_SUBJID",
+                  all.x = TRUE)
+colData <- colData %>% drop_na(c("AGE", "SEX", "BMI", "FEV1.CH", "FEV1PSDS.CH",
+                                 "FEV1PSPC.CH", "FEV1REV.CH", "FEVVCPD.CH",
+                                 "FVCPSPC.CH"))
+
+# Access to count data for subjects that appear in clinicalData dataset:
+countData <- norm_counts[,sampleNames(sputum_eset) %in% colData$D_SUBJID == TRUE]
+
+
+# Replace negative values to NA 
+countData <- replace(countData, which(countData< 0), NA)
+
+# Remove genes with NA 
+countData <- countData[complete.cases(countData),]
+
+# Data dimensions:
+dim(countData)
+dim(colData)
+
+# filter:
+keep <- filterByExpr(countData)
+#keep[keep == FALSE]
+
+```
+
+
+## Differential expression analysis using VOOM
+
+RNA-seq data are discrete therefore linear models. While it is common practice to apply logarithmic transformations before fitting linear models, the transformations depend on an offset level to account for zero counts, which, in turn, can affect the group differences assessed in regression models. Other transformations may be applied such as Poisson or Negative Binomial. Negative binomial modeling is preferred over Poisson’s, as biological variability results in a difference between the mean and variance of the data. The negative binomial is defined by the parameters $\lambda$ and $\phi$ that model the intensity and overdispersion of data.
+
+We will use voom for this analysis. 3 kinds of data are needed:  
+  
+  1. colData, which describes experimental design
+  2. The read count table
+  3. Design formula
+
+**1. colData preparation:** 
+
+`colData` object has already been prepared. 
+  
+**2. Count data table:**  
+  
+`countData` object has already been prepared. 
+
+```{r}
+# Show first registers and check if dimensions are correct:
+head(colData)[1:5,1:5]
+dim(colData)
+
+head(countData)[1:5,1:5]
+dim(countData)
+```
+  
+  
+  **3. Design formula:**  
+   
+It will be setted independently per each clinical measure. 
+
+### Raw analysis for each clinical outcome
+
+We will first perform 5 different models, on for each clinical measure and adjusting the data just by the corresponding measure:
+
+```{r}
+# Filter genes using DGEList:
+library(edgeR)
+length(countData[countData<0])
+# Compute DGEList to store data 
+dge <- DGEList(countData)
+
+# Resulting in 0 genes filtered (the whole countData):
+keep.exprs <- filterByExpr(dge)
+dge.filt <- dge[keep.exprs,]
+dim(dge.filt)
+
+# Design matrix for the change in each measure
+design.matrix1 <- model.matrix(~FEV1.CH, 
+          data=colData)
+design.matrix2 <- model.matrix(~FEV1PSDS.CH,
+          data=colData)
+design.matrix3 <- model.matrix(~FEV1PSPC.CH,
+          data=colData)
+design.matrix4 <- model.matrix(~FEV1REV.CH,
+          data=colData)
+design.matrix5 <- model.matrix(~FEVVCPD.CH,
+          data=colData)
+
+# Adjust for each matrix
+par(mfrow = c(3,2))
+v1 <- voom(dge.filt, design = design.matrix1, plot = TRUE)
+v2 <- voom(dge.filt, design = design.matrix2, plot = TRUE)
+v3 <- voom(dge.filt, design = design.matrix3, plot = TRUE)
+v4 <- voom(dge.filt, design = design.matrix4, plot = TRUE)
+v5 <- voom(dge.filt, design = design.matrix5, plot = TRUE)
+
+# Results for each matrix
+fit1 <- lmFit(v1, design.matrix1)
+fit2 <- lmFit(v2, design.matrix2)
+fit3 <- lmFit(v3, design.matrix3)
+fit4 <- lmFit(v4, design.matrix4)
+fit5 <- lmFit(v5, design.matrix5)
+
+# Correction
+fit1 <- eBayes(fit1)
+fit2 <- eBayes(fit2)
+fit3 <- eBayes(fit3)
+fit4 <- eBayes(fit4)
+fit5 <- eBayes(fit5)
+
+topTable(fit1, sort.by="P", adjust.method = "BH")
+topTable(fit2, sort.by="P", adjust.method = "BH")
+topTable(fit3, sort.by="P", adjust.method = "BH")
+topTable(fit4, sort.by="P", adjust.method = "BH")
+topTable(fit5, sort.by="P", adjust.method = "BH")
+```
+
+We do not observe differential expression in any gene in relation to the change in FEV1. We will perform a second analysis adjusting for each FEV1 measures and Age, Sex and BMI:
+
+```{r}
+# Design matrix for each measure
+design.matrix1 <- model.matrix(~AGE + SEX + BMI + FEV1.CH, 
+          data=colData)
+design.matrix2 <- model.matrix(~AGE + SEX + BMI + FEV1PSDS.CH ,
+          data=colData)
+design.matrix3 <- model.matrix(~AGE + SEX + BMI + FEV1PSPC.CH,
+          data=colData)
+design.matrix4 <- model.matrix(~AGE + SEX + BMI + FEV1REV.CH,
+          data=colData)
+design.matrix5 <- model.matrix(~AGE + SEX + BMI + FEVVCPD.CH,
+          data=colData)
+
+# Adjust for each matrix
+par(mfrow = c(3,2))
+v1 <- voom(dge.filt, design = design.matrix1, plot = TRUE)
+v2 <- voom(dge.filt, design = design.matrix2, plot = TRUE)
+v3 <- voom(dge.filt, design = design.matrix3, plot = TRUE)
+v4 <- voom(dge.filt, design = design.matrix4, plot = TRUE)
+v5 <- voom(dge.filt, design = design.matrix5, plot = TRUE)
+
+# Results for each matrix
+fit1 <- lmFit(v1, design.matrix1)
+fit2 <- lmFit(v2, design.matrix2)
+fit3 <- lmFit(v3, design.matrix3)
+fit4 <- lmFit(v4, design.matrix4)
+fit5 <- lmFit(v5, design.matrix5)
+
+fit1 <- eBayes(fit1)
+fit2 <- eBayes(fit2)
+fit3 <- eBayes(fit3)
+fit4 <- eBayes(fit4)
+fit5 <- eBayes(fit5)
+
+topTable(fit1, sort.by="F")
+topTable(fit2, sort.by="F")
+topTable(fit3, sort.by="F")
+topTable(fit4, sort.by="F")
+topTable(fit5, sort.by="F")
+```
+
+## Adjusted analysis:
+
+### By potential covariates:
+
+We will first adjust the model just with the possible known surrogated variables age, sex and BMI:
+
+```{r}
+# AGE:
+mod_sur <- model.matrix(~AGE, 
+          data=colData)
+v_sur <- voom(countData, design = mod_sur, plot = FALSE)
+
+# Results for matrix
+fit_sur <- lmFit(v_sur, mod_sur)
+fit_sur <- eBayes(fit_sur)
+topTable(fit_sur)
+```
+```{r}
+# SEX
+mod_sur <- model.matrix(~SEX, 
+          data=colData)
+
+v_sur <- voom(countData, design = mod_sur, plot = FALSE)
+
+# Results for matrix
+fit_sur <- lmFit(v_sur, mod_sur)
+fit_sur <- eBayes(fit_sur)
+topTable(fit_sur)
+```
+```{r}
+# BMI
+mod_sur <- model.matrix(~BMI, 
+          data=colData)
+v_sur <- voom(countData, design = mod_sur, plot = FALSE)
+
+# Results for matrix
+fit_sur <- lmFit(v_sur, mod_sur)
+fit_sur <- eBayes(fit_sur)
+topTable(fit_sur)
+```
+
+```{r}
+# Three variables in one model:
+mod_sur <- model.matrix(~AGE + SEX + BMI, 
+          data=colData)
+
+
+v_sur <- voom(countData, design = mod_sur, plot = TRUE)
+
+# Results for matrix
+fit_sur <- lmFit(v_sur, mod_sur)
+fit_sur <- eBayes(fit_sur)
+topTable(fit_sur)
+```
+
+From these results we do not observe genes with significant different expression in relation to the sex, age or BMI of the subjects, which were our potential surrogated variables. In order to correctly adjust the model, SVA will be applied to identify and define surrogated variables that add variation to the model. By this way, unknown effects will be identified and corrected:
+
+### Using surrogated variables (sva): 
+
+
+The goal of the sva is to remove all unwanted sources of variation while protecting the contrasts due to the primary variables included in mod. Specifically, the sva package contains functions for the identification and building surrogate variables for high-dimensional data sets. Surrogate variables are covariates constructed directly from high-dimensional data (like gene expression/RNA sequencing/methylation/brain imaging data) that can be used in subsequent analyses to adjust for unknown, unmodeled, or latent sources of noise.
+
+```{r, eval=FALSE}
+browseVignettes("sva")
+```
+
+
+Two model matrices must be made: the “full model” and the “null model”. The null model is a model matrix that includes terms for all of the adjustment variables but not the variables of interest. The full model includes terms for both the adjustment variables and the variables of interest. 
+
+**Use of SVAseq**  
+  
+  - Change in FEV1:
+  
+  The sva function performs two different steps. First it identifies the number of latent factors that need to be estimated. If the sva function is called without the n.sv argument specified, the number of factors will be estimated for you
+
+```{r}
+mod_fev <- model.matrix(~FEV1.CH, 
+          data=colData)
+mod0 <- model.matrix(~1, 
+          data=colData)
+
+# apply the sva function to estimate the surrogate variables:
+svseq = svaseq(countData,mod_fev,mod0)  
+```
+
+The sva function returns a list with four components, sv, pprob.gam, pprob.b, n.sv. sv is a matrix whose columns correspond to the estimated surrogate variables. They will be used in downstream analyses.
+  
+  The f.pvalue function can be used to calculate parametric F-test p-values for each row of a data matrix. In the case, this would correspond to calculating a parametric F-test p-value for each of the rows of the matrix.
+  First we can calculate the F-test p-values for differential expression with respect to FEV1 change, without adjusting for surrogate variables, adjust them for multiple testing, and calculate the number that are significant with a Q-value less than 0.05.
+  
+```{r}
+pValues = f.pvalue(countData,mod_fev,mod0)
+qValues = p.adjust(pValues,method="BH")
+```
+
+Now we can perform the same analysis, but adjusting for surrogate variables. The first step is to include the surrogate variables in both the null and full models. The reason is that we want to adjust for the surrogate variables, so we treat them as adjustment variables that must be included in both models. Then P-values and Q-values can be computed as before.
+
+```{r}
+modSv = cbind(mod_fev,svseq$sv)
+mod0Sv = cbind(mod0,svseq$sv)
+pValuesSv = f.pvalue(countData,modSv,mod0Sv)
+
+# the adjusted P-values and Q-values accounting for surrogate variables:
+qValuesSv = p.adjust(pValuesSv,method="BH")
+```
+
+```{r}
+fit_sva_fev1 = lmFit(countData,modSv)
+fit_sva_fev1 <- eBayes(fit_sva_fev1)
+topTable(fit_sva_fev1, coef=ncol(mod_fev))
+save(fit_sva_fev1, file = paste0(directory, "/results/Sputum/sva_fev1_voom_sputum.rda"))
+
+toptab <- topTable(fit_sva_fev1,coef=2,sort.by="p", number=nrow(fit_sva_fev1))
+
+# Visualize results using Volcanoplot:
+volcanoplot(fit_sva_fev1,coef=2,highlight=10,
+            names=fit_sva_fev1$genes$SYMBOL, main="Change in FEV1")
+```
+
+
+- Change in FEV1PSDS:
+
+```{r}
+mod <- model.matrix(~FEV1PSDS.CH, 
+          data=colData)
+mod0 <- model.matrix(~1, 
+          data=colData)
+#svseq = sva(countData,mod,mod0)  
+svseq = svaseq(countData,mod,mod0)  
+pValues = f.pvalue(countData,mod,mod0)
+qValues = p.adjust(pValues,method="BH")
+
+modSv = cbind(mod,svseq$sv)
+mod0Sv = cbind(mod0,svseq$sv)
+pValuesSv = f.pvalue(countData,modSv,mod0Sv)
+qValuesSv = p.adjust(pValuesSv,method="BH")
+
+fit_sva = lmFit(countData,modSv)
+fit_sva <- eBayes(fit_sva)
+topTable(fit_sva, coef=ncol(mod))
+```
+
+*Since any gene with different expression is identified, the results visualization is not performed for this clinical outcome.* 
+
+  - Change in FEV1PSPC
+  
+```{r}
+mod <- model.matrix(~FEV1PSPC.CH, 
+          data=colData)
+mod0 <- model.matrix(~1, 
+          data=colData)
+svseq = svaseq(countData,mod,mod0)  
+pValues = f.pvalue(countData,mod,mod0)
+qValues = p.adjust(pValues,method="BH")
+
+modSv = cbind(mod,svseq$sv)
+mod0Sv = cbind(mod0,svseq$sv)
+pValuesSv = f.pvalue(countData,modSv,mod0Sv)
+qValuesSv = p.adjust(pValuesSv,method="BH")
+
+fit_sva = lmFit(countData,modSv)
+fit_sva <- eBayes(fit_sva)
+topTable(fit_sva, coef=ncol(mod))
+```  
+ 
+*Since any gene with different expression is identified, the results visualization is not performed for this clinical outcome.* 
+
+  - Change in FEV1REV
+
+```{r}
+mod <- model.matrix(~FEV1REV.CH, 
+          data=colData)
+mod0 <- model.matrix(~1, 
+          data=colData)
+svseq = svaseq(countData,mod,mod0)  
+pValues = f.pvalue(countData,mod,mod0)
+qValues = p.adjust(pValues,method="BH")
+
+modSv = cbind(mod,svseq$sv)
+mod0Sv = cbind(mod0,svseq$sv)
+pValuesSv = f.pvalue(countData,modSv,mod0Sv)
+qValuesSv = p.adjust(pValuesSv,method="BH")
+
+fit_sva = lmFit(countData,modSv)
+fit_sva <- eBayes(fit_sva)
+topTable(fit_sva, coef=ncol(mod))
+```
+
+*Since any gene with different expression is identified, the results visualization is not performed for this clinical outcome.* 
+
+  - Change in FEVVCPD
+
+```{r}
+mod <- model.matrix(~FEVVCPD.CH, 
+          data=colData)
+mod0 <- model.matrix(~1, 
+          data=colData)
+svseq = svaseq(countData,mod,mod0)  
+pValues = f.pvalue(countData,mod,mod0)
+qValues = p.adjust(pValues,method="BH")
+
+modSv = cbind(mod,svseq$sv)
+mod0Sv = cbind(mod0,svseq$sv)
+pValuesSv = f.pvalue(countData,modSv,mod0Sv)
+qValuesSv = p.adjust(pValuesSv,method="BH")
+
+fit_sva = lmFit(countData,modSv)
+fit_sva_fevcpd <- eBayes(fit_sva)
+(toptab_fevcpd <- topTable(fit_sva_fevcpd, coef=ncol(mod)))
+
+# Visualize results using Volcanoplot:
+
+(p_fevvcpd <- volcanoplot(fit_sva_fevcpd,coef=2,
+            highlight=nrow(toptab_fevcpd[toptab_fevcpd$adj.P.Val<0.05,]),
+            names=fit_sva_fevcpd$genes$SYMBOL, main="Change in FEVVCPD"))
+pdf(paste0(directory, "/images/volcano_fevvcpd_sputum.pdf"), height = 6, width = 5)
+(p_fevvcpd <- volcanoplot(fit_sva_fevcpd,coef=2,
+            highlight=nrow(toptab_fevcpd[toptab_fevcpd$adj.P.Val<0.05,]),
+            names=fit_sva_fevcpd$genes$SYMBOL, main="Change in FEVVCPD"))
+dev.off()
+```
+
+
+- FVCPSPC.CH
+
+```{r}
+mod <- model.matrix(~FVCPSPC.CH, 
+          data=colData)
+mod0 <- model.matrix(~1, 
+          data=colData)
+svseq = svaseq(countData,mod,mod0)  
+pValues = f.pvalue(countData,mod,mod0)
+qValues = p.adjust(pValues,method="BH")
+
+modSv = cbind(mod,svseq$sv)
+mod0Sv = cbind(mod0,svseq$sv)
+pValuesSv = f.pvalue(countData,modSv,mod0Sv)
+qValuesSv = p.adjust(pValuesSv,method="BH")
+
+fit_sva = lmFit(countData,modSv)
+fit_sva_fvcpspc <- eBayes(fit_sva)
+(toptab_fvcpspc <- topTable(fit_sva_fvcpspc, coef=ncol(mod)))
+
+# Volcano plot: 
+p_fvcpspc <- volcanoplot(fit_sva_fvcpspc,coef=2,
+            highlight=nrow(toptab_fvcpspc[toptab_fvcpspc$adj.P.Val<0.05,]),
+            names=fit_sva_fvcpspc$genes$SYMBOL, main="Change in FVCPSPC")
+
+pdf(paste0(directory, "/images/volcano_fvcpspc_sputum.pdf"), height = 6, width = 5)
+p_fvcpspc <- volcanoplot(fit_sva_fvcpspc,coef=2,
+            highlight=nrow(toptab_fvcpspc[toptab_fvcpspc$adj.P.Val<0.05,]),
+            names=p_fvcpspc$genes$SYMBOL, main="Change in FVCPSPC")
+dev.off()
+```
+
+## Different expression analysis using DESeq2
+
+We performed the same analysis but using DESeq2. Results were more or less the same, but enrichment was quite better with voom results. Thus, we will keep working with voom results
+
+```{r, eval=FALSE}
+
+counts <- exprs(sputum_eset)
+head(colSums(counts, na.rm = T)) # Different to 10^6, not CPM normalization
+
+
+# Define 3 inputs (countData and colData has been already defined in previous steps):
+
+
+countData <- countData
+#define the experimental setup 
+colData <- colData
+#define the design formula
+designFormula <- as.formula(~ FEV1.CH)
+
+
+#To apply DESeq2, we need the raw data counts but we do not have them, 
+#so we will round the normalized data, and set for non-normalization during DESeq2 perform:
+
+#Run DESeq2:
+
+library(DESeq2)
+
+# Round data and estimate size factors. All the size factors are nearly 1,
+# so there isn't big deviation so ve can round the data:
+estimateSizeFactorsForMatrix(round(countData))
+
+dds <- DESeqDataSetFromMatrix(countData = round(countData), 
+                              colData = colData, 
+                              design = designFormula)
+sizeFactors(dds) = 1 # set size factor to 1, in order to avoid normalization
+dds = estimateDispersions(dds)
+
+# New count table:
+head(counts(dds,normalize=TRUE))[1:5,1:5]
+# Original count table
+head(countData)[1:5,1:5]
+
+
+# Check for differences with or without normalization:
+par(mfrow = c(2, 1))
+plotRLE(DESeq2::counts(dds, normalized = FALSE), 
+        outline=FALSE, ylim=c(-2, 2), 
+        main = 'Raw counts')
+plotRLE(DESeq2::counts(dds, normalized = TRUE), 
+        outline=FALSE, ylim=c(-2, 2),  
+        main = 'Normalize counts')
+
+
+#There is no big difference, so we can use the rounded counts for DESeq2 analysis. (from:
+# https://bioinformatics.stackexchange.com/questions/15598/un-normalize-deseq2-counts)
+
+
+print(dds)
+
+# Remove genes that have almost no information in any of the given samples.
+dds <- dds[ rowSums(counts(dds)) > 1, ]
+
+dds <- DESeq(dds)
+
+DEresults <- results(dds)
+DEresults <- DEresults[order(DEresults$pvalue),]
+DEresults[1:5,]
+
+
+#Diagnostic plots:
+
+
+# MA PLOT
+DESeq2::plotMA(object = dds, ylim = c(-5, 5))
+
+# Volcano plot
+EnhancedVolcano(DEresults,
+                lab = rownames(DEresults),
+                x = 'log2FoldChange',
+                y = 'pvalue', ylim=c(0,0.5))
+
+# p-value distribution
+ggplot(data = as.data.frame(DEresults), aes(x = pvalue)) + 
+  geom_histogram(bins = 100)
+
+
+### SVA analysis:
+
+#Considering the results obtained using VOOM, the models will be performed directly using sva analysis.
+
+#- Change in FEV1: 
+
+
+mod1 <- model.matrix( ~ FEV1.CH, data=colData)
+mod0 <- model.matrix( ~ 1, data=colData)   
+countData <- countData[ rowSums(countData) > 10, ]
+sv <- svaseq(countData, mod1, mod0)
+
+# add surrogate variables to the colData
+temp <- DataFrame(colData, sv$sv)
+colData(dds) <- temp
+
+# update the design
+design(dds) <- as.formula( ~  V1 +  V2 +  V3 +  V4 +  V5 +  V6 +  V7 +
+                              V8 + V9 + V10 + V11 + V12 + V13 + FEV1.CH)
+
+# re-run the analysis
+dds <- dds[rowSums(DESeq2::counts(dds)) > 10]
+dds <- DESeq(dds)
+ans.sv <- results(dds)
+
+# Store and order the results
+SVresults_fev1 <- ans.sv[order(ans.sv$pvalue),]
+SVresults_fev1
+save(SVresults_fev1, file = "sv_results_fev1_DESeq2.RData")
+# MA PLOT
+DESeq2::plotMA(object = dds, ylim = c(-5, 5))
+
+# Volcano plot
+EnhancedVolcano(SVresults_fev1,
+                lab = rownames(SVresults_fev1),
+                x = 'log2FoldChange', xlim = c(-2,2),
+                y = 'pvalue', ylim=c(0,8))
+
+# p-value distribution for p.value and p.adjusted
+par(mfrow = c(2,1))
+ggplot(data = as.data.frame(SVresults_fev1), aes(x = pvalue)) + 
+  geom_histogram(bins = 100)
+ggplot(data = as.data.frame(SVresults_fev1), aes(x = padj)) + 
+  geom_histogram(bins = 100)
+
+
+
+# - Change in FEV1PSDS: 
+
+mod1 <- model.matrix( ~ FEV1PSDS.CH, data=colData)
+mod0 <- model.matrix( ~ 1, data=colData)   
+countData <- countData[ rowSums(countData) > 10, ]
+sv <- svaseq(countData, mod1, mod0)
+
+# add surrogate variables to the colData
+temp <- DataFrame(colData, sv$sv)
+colData(dds) <- temp
+
+# update the design
+design(dds) <- as.formula( ~  V1 +  V2 +  V3 +  V4 +  V5 +  V6 +  V7 +
+                              V8 + V9 + V10 + V11 + V12 + V13 + FEV1PSDS.CH)
+
+# re-run the analysis
+dds <- dds[rowSums(DESeq2::counts(dds)) > 10]
+dds <- DESeq(dds)
+ans.sv <- results(dds)
+
+SVresults <- ans.sv[order(ans.sv$pvalue),]
+head(SVresults)
+
+
+
+# *Since no significant results are obtained, the visualization is not performed.*
+
+# MA PLOT
+DESeq2::plotMA(object = dds, ylim = c(-5, 5))
+
+# Volcano plot
+EnhancedVolcano(SVresults,
+                lab = rownames(SVresults),
+                x = 'log2FoldChange',
+                y = 'pvalue', ylim=c(0,50))
+
+# - Change in FEV1PSPC: 
+
+
+mod1 <- model.matrix( ~ FEV1PSPC.CH, data=colData)
+mod0 <- model.matrix( ~ 1, data=colData)   
+countData <- countData[ rowSums(countData) > 10, ]
+sv <- svaseq(countData, mod1, mod0)
+
+# add surrogate variables to the colData
+temp <- DataFrame(colData, sv$sv)
+colData(dds) <- temp
+
+# update the design
+design(dds) <- as.formula( ~  V1 +  V2 +  V3 +  V4 +  V5 +  V6 +  V7 +
+                              V8 + V9 + V10 + V11 + V12 + V13 + V14 + FEV1PSPC.CH)
+
+# re-run the analysis
+dds <- dds[rowSums(DESeq2::counts(dds)) > 10]
+dds <- DESeq(dds)
+ans.sv <- results(dds)
+
+SVresults <- ans.sv[order(ans.sv$pvalue),]
+SVresults
+
+
+# *Since no significant results are obtained, the visualization is not performed.*
+
+
+# MA PLOT
+DESeq2::plotMA(object = dds, ylim = c(-5, 5))
+
+# Volcano plot
+EnhancedVolcano(SVresults,
+                lab = rownames(SVresults),
+                x = 'log2FoldChange',
+                y = 'pvalue', ylim=c(0,50))
+
+
+
+# - Change in FEV1REV: 
+
+
+mod1 <- model.matrix( ~ FEV1REV.CH, data=colData)
+mod0 <- model.matrix( ~ 1, data=colData)   
+countData <- countData[ rowSums(countData) > 10, ]
+sv <- svaseq(countData, mod1, mod0)
+
+# add surrogate variables to the colData
+temp <- DataFrame(colData, sv$sv)
+colData(dds) <- temp
+
+# update the design
+design(dds) <- as.formula( ~  V1 +  V2 +  V3 +  V4 +  V5 +  V6 +  V7 +
+                              V8 + V9 + V10 + V11 + V12 + V13 + V14 + FEV1REV.CH)
+
+# re-run the analysis
+dds <- dds[rowSums(DESeq2::counts(dds)) > 10]
+dds <- DESeq(dds)
+ans.sv <- results(dds)
+
+SVresults <- ans.sv[order(ans.sv$pvalue),]
+SVresults
+
+
+# *Since no significant results are obtained, the visualization is not performed.*
+
+# MA PLOT
+DESeq2::plotMA(object = dds, ylim = c(-5, 5))
+
+# Volcano plot
+EnhancedVolcano(SVresults,
+                lab = rownames(SVresults),
+                x = 'log2FoldChange',
+                y = 'pvalue', ylim=c(0,50))
+
+
+
+# - Change in FEVVCPD: 
+
+mod1 <- model.matrix( ~ FEVVCPD.CH, data=colData)
+mod0 <- model.matrix( ~ 1, data=colData)   
+countData <- countData[ rowSums(countData) > 10, ]
+sv <- svaseq(countData, mod1, mod0)
+
+# add surrogate variables to the colData
+temp <- DataFrame(colData, sv$sv)
+colData(dds) <- temp
+
+# update the design
+design(dds) <- as.formula( ~  V1 +  V2 +  V3 +  V4 +  V5 +  V6 +  V7 +
+                              V8 + V9 + V10 + V11 + V12 + V13 + V14 + FEVVCPD.CH)
+
+# re-run the analysis
+dds <- dds[rowSums(DESeq2::counts(dds)) > 10]
+dds <- DESeq(dds)
+ans.sv <- results(dds)
+
+SVresults <- ans.sv[order(ans.sv$pvalue),]
+SVresults
+
+
+# *Since no significant results are obtained, the visualization is not performed.*
+
+# MA PLOT
+DESeq2::plotMA(object = dds, ylim = c(-5, 5))
+
+# Volcano plot
+EnhancedVolcano(SVresults,
+                lab = rownames(SVresults),
+                x = 'log2FoldChange',
+                y = 'pvalue', ylim=c(0,50))
+```
+
+
+## Enrichment analysis 
+
+We have just detected genes with differential expression in relation to FEV1. After this selection, we will verify whether these DE genes belong to the gene set in a proportion that exceeds any expectation of finding that number of genes in that gene set by chance alone. A straightforward way to assess this hypothesis consists of applying a hypergeometric test.
+
+After identifying this DE genes, the next step will be to determine the pathways or biological processes in which these genes are related with. We obtained the following results from voom analysis:
+
+We have results obtained from VOOM analysis:
+
+Since we just identified 1 gene related with FEVVCPD and FVCPSPD and we need higher numbers in order to perform an enrichment analysis, in this case we will select genes with an adjusted p-value higher than 0.1 rather than 0.05 
+
+```{r, warning=FALSE, eval=TRUE, echo=TRUE}
+voom_fev1_res <- topTable(fit_sva_fev1,coef=2,sort.by="p", number=nrow(fit_sva_fev1))
+
+# select genes with padj < 0.1
+mask_voom <- toptab_fevcpd$adj.P.Val < 0.1 & !is.na(toptab_fevcpd $adj.P.Val) 
+mask_voom2 <- toptab_fvcpspc$adj.P.Val < 0.1 & !is.na(toptab_fvcpspc$adj.P.Val) 
+
+```
+
+We obtained the following results from voom analysis:
+```{r, eval=TRUE, echo=TRUE}
+# Visualize results
+topTable(fit_sva_fevcpd, coef = 2)
+topTable(fit_sva_fvcpspc, coef = 2)
+rownames(topTable(fit_sva_fevcpd, coef = 2))
+rownames(topTable(fit_sva_fvcpspc, coef = 2))
+```
+
+As we just obtained 2 DE genes, the enrichment analysis was not performed. 
+
+```{r, eval=FALSE, echo=FALSE}
+# store results:
+voom_fevcpd_res <- topTable(fit_sva_fevcpd,coef=2,sort.by="p", number=nrow(fit_sva_fevcpd))
+voom_fvcpsc_res <- topTable(fit_sva_fvcpspc,coef=2,sort.by="p", number=nrow(fit_sva_fvcpspc))
+# select genes with adj p-value less than 0.1:
+mask_voom <- voom_fevcpd_res$adj.P.Val < 0.1 & !is.na(voom_fevcpd_res$adj.P.Val) 
+mask_voom2 <- voom_fvcpsc_res$adj.P.Val < 0.1 & !is.na(voom_fvcpsc_res$adj.P.Val) 
+
+# With Voom results:
+deGenes_v <- rownames(voom_fevcpd_res[mask_voom, ])
+deGenes_v2 <- rownames(voom_fvcpsc_res[mask_voom, ])
+deGenes_v <- c(deGenes_v, deGenes_v2)
+
+deGenes_v <- unique(getEG(as.character(deGenes_v), "hgu133plus2.db"))
+
+geneUniverse_v <- rownames(voom_fev1_res[!is.na(voom_fev1_res$P.Value), ])
+
+geneUniverse_v <- unique(getEG(as.character(geneUniverse_v), "hgu133plus2.db"))
+
+
+length(deGenes_v)
+head(deGenes_v)
+length(geneUniverse_v)
+head(geneUniverse_v)
+```
+
+### Enrichment using GO (VOOM results):
+
+
+```{r, eval=FALSE}
+#Genes over-represented:
+params.go_v <- new("GOHyperGParams", geneIds=deGenes_v,
+              universeGeneIds=geneUniverse_v,
+              annotation="hgu133plus2.db", ontology="BP",
+              pvalueCutoff=0.05, conditional=FALSE,
+              testDirection="over")
+
+go_Over_v <- hyperGTest(params.go_v)
+go_Over_v
+head(summary(go_Over_v))
+htmlReport(go_Over_v, file="goOver_voom.html")
+
+#Genes under-represented:
+params.go_v <- new("GOHyperGParams", geneIds=deGenes_v,
+              universeGeneIds=geneUniverse_v,
+              annotation="hgu133plus2.db", ontology="BP",
+              pvalueCutoff=0.05, conditional=FALSE,
+              testDirection="under")
+
+go_Under_v <- hyperGTest(params.go_v)
+go_Under_v
+head(summary(go_Under_v))
+htmlReport(go_Under_v, file="goUnder_voom.html")
+
+# Don't show results because there are not significant
+# Visualize results:
+x = go_Over_v
+y= termGraphs(go_Over_v, id = NULL, pvalue = NULL, use.terms = TRUE)
+
+par(mfrow=c(2,5))
+lapply(y, plotGOTermGraph, x,
+  node.colors=c(sig="lightgray", not="white"), node.shape="circle", 
+  add.counts=FALSE)
+
+
+### Enrichment using KEGG (VOOM results):
+
+
+# Over-represented genes:
+params.kegg_v <- new("KEGGHyperGParams", geneIds=deGenes_v,
+                   universeGeneIds=geneUniverse_v,
+                   annotation="hgu133plus2.db", 
+                   pvalueCutoff=0.05, 
+                   testDirection="over")
+
+kegg_over_v <- hyperGTest(params.kegg_v)
+head(summary(kegg_over_v))
+
+# Under-represented genes:
+params.kegg_v <- new("KEGGHyperGParams", geneIds=deGenes_v,
+                   universeGeneIds=geneUniverse_v,
+                   annotation="hgu133plus2.db", 
+                   pvalueCutoff=0.05, 
+                   testDirection="under")
+
+kegg_under_v <- hyperGTest(params.kegg_v)
+head(summary(kegg_under_v))
+
+
+### Enrichment using DisGenet and MsigDB (VOOM results):
+
+
+# DisGenet:
+
+# import dataset:
+gda <- read.delim("data/curated_gene_disease_associations.tsv")
+disease2gene <- gda[, c("diseaseId", "geneId")]
+disease2name <- gda[, c("diseaseId", "diseaseName")]
+ans.dis_v <- enricher(deGenes_v, TERM2GENE=disease2gene,
+                    TERM2NAME=disease2name)
+tab.dis_v <- as.data.frame(ans.dis_v)
+head(tab.dis_v)
+
+
+# MsigDB
+c7.tf <- read.gmt("data/c7.all.v6.2.entrez.gmt.txt")
+
+ans.tf_v <- enricher(deGenes_v, TERM2GENE=c7.tf)
+tab.tf_v <- as.data.frame(ans.tf_v)
+head(tab.tf_v)
+
+
+### Additional enrichment using clusterProfiler (VOOM results): 
+
+
+#GO with clusterprofiler
+ans.go_v <- enrichGO(gene = deGenes_v, ont = "BP",
+                     universe = geneUniverse_v,
+                     keyType = "ENTREZID",
+                   OrgDb ="hgu133plus2.db",
+                   readable=TRUE,
+                   pvalueCutoff = 0.05,
+                   pAdjustMethod = "BH")
+tab.go_v <- as.data.frame(ans.go_v)
+head(tab.go_v)
+ego_results <- data.frame(tab.go_v)
+write.csv(ego_results, "clusterProfiler_VOOMresults_.csv")
+
+
+# KEGG with clusterprofiler
+ans.kegg_v <- enrichKEGG(gene = deGenes_v,
+                       organism = 'hsa',
+                       pvalueCutoff = 0.05)
+tab.kegg_v <- as.data.frame(ans.kegg_v)
+head(tab.kegg_v)
+```
