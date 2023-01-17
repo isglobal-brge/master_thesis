@@ -1,0 +1,1143 @@
+---
+title: "Radiomic data processing and analysis"
+author: "Berta Franch Martínez"
+date: "January 2023"
+output: 
+    pdf_document: 
+    latex_engine: xelatex
+toc: yes
+toc_depth: 3
+---
+
+\pagebreak
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(cache = TRUE)
+knitr::opts_chunk$set(comment = "")
+```
+
+```{r libraries, message=FALSE, echo=FALSE}
+library(longmixr)
+library(vtable)
+library(ConsensusClusterPlus)
+library(here)
+library(xlsx)
+library(kableExtra)
+library(BiocManager)
+library(ggfortify)
+library(BiocGenerics)
+library(compareGroups)
+library(tidyverse)
+library(dbplyr)
+library(amap)
+library(lme4)
+library(mixlm)
+library(lmerTest) # using lmerTest to obtain p-values
+library(purrr) # to iterate
+library(patchwork) # v. 1.1.1
+library(broom)
+library(cowplot)
+library(ggplot2)
+library(magick)
+library(car)
+#install.packages("DHARMa")
+library(DHARMa)
+library(devtools)
+library(factoextra)
+library(FactoMineR)
+#install.packages("rstatix")
+library(skimr)
+library(janitor)
+library(rstatix)
+library(tibble)
+#devtools::install_github("dgarrimar/manta")
+library(manta)
+#devtools::install_github("vqv/ggbiplot")
+library(ggbiplot)
+```
+
+```{r, echo=FALSE}
+directory = getwd()
+```
+
+## 0. Object visualization: 
+
+```{r, message=FALSE, warning=FALSE}
+# import and visualize data:
+load(paste0(directory, "/data/radar_L1_Norm_scaled_adjusted_min_int_center_final.rda"))
+rdr_L1_final
+```
+
+```{r}
+# Delete ".original" from rownames
+rownames(rdr_L1_final) <-  sub(".original", "", rownames(rdr_L1_final))
+head(rownames(rdr_L1_final))[1:3]
+
+#check for NA
+anyNA(rdr_L1_final)
+```
+
+
+- Storage of ColData and first descriptive statistics:
+```{r}
+
+# load colData with some variables transformed in order to reach normality:
+load(paste0(directory, "/data/colData_def.rda"))
+load(paste0(directory, "/data/colData_trans.rda"))
+
+# We will be working with transformed data:
+colData <- colData_trans
+
+# Sex:
+(t <- table(colData$SEX.t1, useNA = "ifany"))
+round((prop.table(t)*100),2)
+
+# Age
+summary(colData$AGE)
+sd(colData$AGE, na.rm = T)
+
+# Age stratified by sex
+# Male:
+summary(colData$AGE[colData$SEX.t1 == "M"])
+sd(colData$AGE[colData$SEX.t1 == "M"], na.rm = T)
+
+# Female
+summary(colData$AGE[colData$SEX.t1 == "F"])
+sd(colData$AGE[colData$SEX.t1 == "F"], na.rm = T)
+
+
+# Race
+colData$RACE1.t1 <- as.factor(colData$RACE1.t1)
+summary(colData$RACE1.t1, useNA = "ifany")
+round(prop.table(table(colData$RACE1.t1, useNA = "ifany"))*100, 2)
+table(colData$RACE1.t1, useNA = "ifany")
+
+# COPD
+colData$GOLDCD <- as.factor(colData$GOLDCD)
+summary(colData$GOLDCD, useNA = "ifany")
+round(prop.table(table(colData$GOLDCD, useNA = "ifany"))*100, 2)
+table(colData$GOLDCD, useNA = "ifany")
+
+# Smoker
+colData$SMOKER <- as.factor(colData$SMOKER)
+summary(colData$SMOKER, useNA = "ifany")
+round(prop.table(table(colData$SMOKER, useNA = "ifany"))*100, 2)
+table(colData$SMOKER, useNA = "ifany")
+```
+
+- Descriptive table: 
+
+```{r}
+
+# select variables of interest (categorical and numerical) from ColData:
+interest_vars_cat <- c("SEX.t1", "SMOKER",  
+                   "CBRONCH",  #Chronic bronchitis phenotype flag
+                   "EMPH.t1", "EMPH.t3", # 	Individual has emphysema
+                   "RACE1.t1", "GOLDCD")
+
+interest_vars_num <- c("AGE", "BMI.t1", "BMI.t3",
+                        "SUPKYR", #Number of pack years smoked 
+                        "FEV1.t1", "FEV1.t3", # Forced expiratory volume (1 second) (L)
+                        "FEV1PSDS.t1", "FEV1PSDS.t3", #Post-dose FEV1 (L)
+                       "FEV1PSPC.t1", "FEV1PSPC.t3",
+                       "FEV1REV.t1", "FEV1REV.t3", 
+                       "FEVVCPD.t1", "FEVVCPD.t3",
+                       "FVCPSPC.t1", "FVCPSPC.t3") 
+
+# select and store as factor or numeric variables:
+colData1 <- colData %>% select(c(interest_vars_cat, interest_vars_num)) %>% 
+  mutate_at(interest_vars_cat, as.factor) %>% 
+  mutate_at(interest_vars_num, as.numeric)
+
+# access to summary with skim:
+skim <- skim(colData1)
+dim(skim)
+# add percentages for categorical variables
+sum_table <- skim %>% add_column(Percentage=c((1115/1773)*100, 
+            (1105/1773)*100, (1192/1773)*100, (1626/1773)*100, (1174/1773)*100,
+            (1720/1773)*100, (782/1773)*100,
+            rep(NA, (23-7))),.after = 7)  %>% # add percentage in factor variables
+            select(c(1,2,3,4,7:16)) # select interest variables
+
+# Settings of table:
+names(sum_table) <- c("Var type", "Variable", "Missing values", 
+                      "Complete Rate", "Factor counts",
+                      "Percentage first factor(%)", "Mean", "Standard Deviation", 
+                      "Minimum", "p25", "Median", "p75", "Maximum", "Histogram")
+
+sum_table[,c(4,6:13)] <- sum_table[,c(4,6:13)] %>% round(digits = 2)
+
+sum_table %>% flextable::flextable() %>%            # convert to image
+  flextable::autofit() %>%              # ensure only one line per row
+  flextable::save_as_docx(path = paste0(directory, "/results/Radiomic/sum_table.docx")) # save as docx file
+```
+
+## 1. Features description:
+
+The `rdr_L1_final` contains the 101 radiomic features previously normalized from 1773 subjects. In Figure 1 the boxplot of each feature (normalized) is presented. Additionally, the summary metrics for each variable can be found in appendix 1. 
+
+```{r boxplot_code, echo=FALSE, message=FALSE}
+title = directory
+#title = here()
+features_adj <- data.frame(t(assay(rdr_L1_final, "adjusted_min_int_center")))
+
+
+b1 <- (features_adj[1:20] )
+b2 <- (features_adj[21:40] )
+b3 <- (features_adj[41:60] )
+b4 <- (features_adj[61:80] )
+b5 <- (features_adj[81:ncol(features_adj)] )
+
+pdf(paste0(title, "/images/features_boxplot.pdf"), width = 20, height = 30)
+## Adjust some graphical parameters.
+par(mfrow = c(6,1), # change the margins
+    lwd = 0.5, # decrease the line thickness
+    cex.axis = 1.2 # increase default axis label size
+    )
+
+boxplot(b1, xaxt = "n")
+axis(side = 1, labels = FALSE)
+text(x = 1:length(b1), y = par("usr")[3] - 0.45,
+     labels = names(b1), xpd = NA, srt = 30, adj = 0.965,  cex = 2)
+boxplot(b2, xaxt = "n")
+axis(side = 1, labels = FALSE)
+text(x = 1:length(b2), y = par("usr")[3] - 0.45,
+     labels = names(b2), xpd = NA, srt = 30, adj = 0.965,  cex = 2)
+boxplot(b3, xaxt = "n")
+axis(side = 1, labels = FALSE)
+text(x = 1:length(b3), y = par("usr")[3] - 0.45,
+     labels = names(b3), xpd = NA, srt = 30, adj = 0.965,  cex = 2)
+boxplot(b4, xaxt = "n")
+axis(side = 1, labels = FALSE)
+text(x = 1:length(b4), y = par("usr")[3] - 0.45,
+     labels = names(b4), xpd = NA, srt = 30, adj = 0.965,  cex = 2)
+boxplot(b5, xaxt = "n")
+axis(side = 1, labels = FALSE)
+text(x = 1:length(b5), y = par("usr")[3] - 0.45,
+     labels = names(b5), xpd = NA, srt = 30, adj = 0.965,  cex = 2)
+dev.off()
+
+```
+
+![Boxplot feature variables](`r paste0(title, "/images/features_boxplot.pdf")`)
+
+\pagebreak
+
+### PCA with Gold:
+
+Additionally, a PCA was performed relating radiomic features to COPD category (`GOLDCD`). Each color represents one different COPD cateogry (2, 3 or 4). As seen, no notable effect was detected in relation to GOLDCD: 
+
+```{r, warning=FALSE, fig.cap="PCA plot by GOLD category"}
+pcaResults <- prcomp(features_adj)
+autoplot(pcaResults, data = features_adj, 
+         colour = factor(rdr_L1_final$GOLDCD, levels = c("2", "3", "4"))) +
+  ggtitle("PCA plot by GOLDCD") + 
+  scale_color_manual("GOLDCD categroy", 
+  values = c("green", "red", "blue"), labels = c("2", "3", "4"), 
+  limits = c(2,3,4))
+```
+
+
+## 2. Determination of the optimal number of clusters:
+
+To determine the optimal nnumber of clusters, the `ConsensusClusterPlus` function was applied.
+
+### 2.1 Prepare input data:
+
+We first have to transpose data in order to obtain a dataset with columns as samples (items to cluster), the features in this case:
+```{r}
+# Transpose radiomic data
+features_adj <- t(assay(rdr_L1_final, "adjusted_min_int_center"))
+```
+
+### 2.2 Execute ConsensusClusterPlus:
+
+ConsensusClusterPlus was ran using both Pearson's and Spearman distance's formulas (and with two different random seeds). In both cases the linkage method used was Ward's D.  
+The results obtained with Pearson's and Spearman's distances were quite similar. We decided to work with the results obtained using Pearson's distace since this method measures similarities in shape rather than in distance, which does Spearman, and generate more compact clusters.
+
+We assessed the curve for the change in the area under the Consensus Cumulative Distribution Function (CDF) and chose the number of clusters at which the area under the CDF no longer appreciably increases (the elbow), which was 8 in this case. In Figure 2 the CDF curves for Pearson and Spearman results are presented.  
+  
+
+```{r, message=FALSE, warning=FALSE, eval=TRUE}
+# Executing for "pearson" and "spearman" distances:
+
+# Pearson:
+results_p = ConsensusClusterPlus(
+    features_adj, 
+    maxK = 20,  # max cluster counts evaluated
+    reps = 1000, # resamplings
+    pItem = 0.8, # 80% item (feature) resampling
+    pFeature = 0.8, # 80% feature resampling
+    title = paste0(title, "/results/radiomic/CCP_Pearson"),
+    clusterAlg = "hc", # agglomerative hierarchical clustering algorithm
+    distance = "pearson", #1-pearson correlation distances
+    seed= 290597, finalLinkage = "ward.D2",
+    innerLinkage = "ward.D2",
+    plot = "png") # graphical results
+
+
+# Spearman:
+results_s = ConsensusClusterPlus(
+    features_adj, 
+    maxK = 20,  # max cluster counts evaluated
+    reps = 1000, # resamplings
+    pItem = 0.8, # 80% item (feature) resampling
+    pFeature = 0.8, # 80% feature resampling
+    title = paste0(title, "/results/radiomic/CCP_Spearman"),
+    clusterAlg = "hc", # agglomerative hierarchical clustering algorithm
+    distance = "spearman", #spearman correlation distances
+    seed= 290597, finalLinkage = "ward.D2",
+    innerLinkage = "ward.D2",
+    plot = "png") # graphical results
+
+```
+
+Check for diferences using another random seed (`results_p2` and `results_s2`):
+
+```{r, eval=FALSE}
+results_p2 = ConsensusClusterPlus(features_adj, maxK = 20, reps = 1000, 
+    pItem = 0.8, pFeature = 0.8, title = paste0(title, "/CCPResults/Pearson2/"),
+    clusterAlg = "hc", distance = "pearson", innerLinkage = "ward.D2", 
+    finalLinkage = "ward.D2",
+    seed= 123456,  plot = "pdf") 
+
+results_s2 = ConsensusClusterPlus(features_adj, maxK = 20, reps = 1000, 
+    pItem = 0.8, 
+    pFeature = 0.8, title = paste0(title, "/CCPResults/Spearman2/"),
+    clusterAlg = "hc",distance = "spearman",
+    finalLinkage = "ward.D2", innerLinkage = "ward.D2",
+    seed= 123456,  plot = "pdf") 
+
+```
+
+```{r CDFplot, echo=FALSE, fig.cap="Relative change in area under CDF curve for different K using Pearson (left) and Spearman (right) distances"}
+p1 <- ggdraw() + draw_image(paste0(title, "/results/radiomic/CCP_Pearson/consensus022.png"), scale = 0.9)
+p2 <- ggdraw() + draw_image(paste0(title, "/results/radiomic/CCP_Spearman/consensus022.png"), scale = 0.9)
+
+plot_grid(p1, p2)
+```
+  
+  
+### 2.3 Access and visualize results: 
+
+ConsensusClusterPlus provides consensusMatrix (numerical matrix), consensusTree (hclust), consensusClass (consensus class asssignments) and images for each `k`. Based on our results previously showed, the optimal K obtained is 6.  
+
+We can visualize the dendogram obtained from the optimal k-value identified (displayed in Figure 4) and access to consensus class assingments for each item:  
+  
+  
+
+```{r, fig.width=25, fig.height=10, fig.cap="Dendogram with pearson's distance (CCP)"}
+# hclust for K=6 (in pearson):
+
+# access to hclust result:
+hclust_res_p <- results_p[[6]]["consensusTree"] 
+# plot the dendogram: 
+plot(results_p[[6]][["consensusTree"]]) 
+# add delimitation  lines for each cluster:
+rect.hclust(results_p[[6]][["consensusTree"]],6) 
+```
+
+  \pagebreak
+  
+```{r, fig.align='center'}
+# Consensus class assignments for K=8:
+
+# Store results in a data frame and name the variables:
+consensusclass_p <- as.data.frame(results_p[[6]][["consensusClass"]])
+names(consensusclass_p) <- "cluster"
+# Set cluster as a factor and display a table:
+consensusclass_p$cluster <- as.factor(consensusclass_p$cluster)
+kable(table(consensusclass_p$cluster), col.names = c("Cluster", "Count"), format = "pipe" )
+```
+
+```{r, echo = FALSE, eval = FALSE}
+set.seed(290597)
+# prepare data
+ward_data <- assay(rdr_L1_final, "adjusted_min_int_center")
+
+# Check for multicollineality?
+corr_matrix <- cor(features_adj)
+
+# Calculate distance using Ward.D method:
+wardsmethod_p <-hclust(Dist(ward_data, 
+                          method = "pearson"), method="ward.D2") # no need to scale
+```
+
+```{r, echo=FALSE, eval=FALSE, message=FALSE}
+pdf(paste0(title, "/images/dendogram_class_p.pdf"), width = 25, height = 10)
+plot(wardsmethod_p)
+rect.hclust(wardsmethod_p,6)
+dev.off()
+```
+
+
+## 3. Obtention of item and cluster list (with adjusted data)
+
+We create a data frame with the cluster items obtained for k=8 using ClusterConsensusPlus. The summary from this data set is presented below. The data frame obtained and sorted by items per cluster is displayed in Appendix 2.  
+
+\pagebreak 
+
+```{r}
+# Create DataFrame with feature and group:
+features_clust=consensusclass_p
+# create a variable for features:
+features_clust$feature <- rownames(features_clust) 
+# put "feature" first in data frame:
+features_clust <- features_clust %>%
+  select(feature, everything())
+# set "cluster" as a factor:
+features_clust$cluster = as.factor(features_clust$cluster)
+# delete rownames:
+rownames(features_clust) <- NULL
+
+summary(features_clust)
+```
+
+```{r}
+# Save results in an 'xls' file:
+write.xlsx(features_clust, paste0(directory, "/results/Radiomic/features_clust.xls"))
+```
+
+## 4. Calculate Item Cluster Coefficients using ClusterConsensusPlus
+
+Additionally, we can calculate cluster consensus and item consensus using `calcICL`: 
+```{r, fig.align='center'}
+# With ClusterConsensus, calculate "cluster consensus" and "item consensus":
+icl_p = calcICL(results_p, title=paste0(title, "/results/Radiomic"), plot="png")
+
+# Store results for all k-values:
+icl_clust_p <- data.frame(icl_p$clusterConsensus)
+
+# Select and display results for k=6:
+kable((k6_p <- round(icl_clust_p[icl_clust_p$k == 6,], 2)), 
+      caption = "Cluster consensus for k=6", format = "pipe")
+```
+
+*Cluster Consensus* indicates the repeatability of cluster components on repeated clustering, that is the likelihood that the same features appear in the cluster if the clustering analysis is repeated.  
+
+
+## 5. Cluster description
+
+In order to describe the features' clusters obtained, all the data was re-organized and related to COPD category:  
+Firstly, the corresponding cluster was assigned to each feature. Secondly, the COPD category (`GOLDCD`) from each subject was selected together with the corresponding mask id. 
+
+```{r, eval=TRUE}
+# ASSAY FEATURES DATA FRAME Access to assay data:
+assay_features <- data.frame(assay(rdr_L1_final, "adjusted_min_int_center"))
+
+# assign to each feature its corresponding cluster:
+assay_features <- cbind(assay_features, features_clust$cluster)
+
+# set names
+names(assay_features)[1774] <- "cluster"
+feature_name <- rownames(assay_features)
+rownames(assay_features) <- NULL
+assay_features$feature <- feature_name
+save(assay_features, file=paste0(directory, "/data/assay_features_clust.rda"))
+clustering_coldata <- colData
+save(clustering_coldata, file=paste0(directory, "/data/clustering_coldata.rda"))
+
+# Select GOLDCD and mask_id from ColData:
+id_goldcd <- cbind(rdr_L1_final$mask_id, rdr_L1_final$GOLDCD)
+colnames(id_goldcd) <- c("id", "goldcd")
+```
+
+Using `pivot_longer`, we re-organized data in order to have the value recorded for each feature and each subject; also indicating to which cluster belongs each feature.
+
+```{r, warning=FALSE, eval = TRUE}
+# re-organize data with pivot-longer
+assay_features <- assay_features %>%
+  pivot_longer(c(-feature,-cluster),
+               names_to = "id",
+               values_to = "intensity")
+# Delete NA
+assay_features <- na.omit(assay_features)
+
+# change id to match with gold_id
+assay_features$id <-  sub("X", "", assay_features$id)
+
+# join both datasets
+assay_features <- merge(assay_features, id_goldcd)
+
+# Show first records from first subject
+head(assay_features)
+```
+\pagebreak
+
+### 5.1 General descriptive tables:
+
+Once we have the data properly organized, we can set some descriptive tables using `compareGroups`:  
+
+```{r}
+# Descriptive table:
+export2md(descrTable(~goldcd + cluster, data = assay_features))
+```
+
+```{r, eval=TRUE, message=FALSE, warning=FALSE}
+# Compare cluster groups:
+res1 <- compareGroups(cluster ~ intensity, data = assay_features, max.ylev = 6)
+tab1 <- createTable(res1)
+export2md(tab1, size = 7)
+```
+
+```{r, message=FALSE, warning=FALSE}
+# Compare GOLDCD groups:
+res2 <- compareGroups(goldcd ~ intensity, data = assay_features, max.ylev = 6)
+tab2 <- createTable(res2)
+export2md(tab2, size = 9)
+
+# Compare clusters by GOLDCD
+tab_goldcd2 <- createTable(update(res1, subset = goldcd == 2), 
+    show.p.overall = TRUE)
+tab_goldcd3 <- createTable(update(res1, subset = goldcd == 3), 
+    show.p.overall = TRUE)
+tab_goldcd4 <- createTable(update(res1, subset = goldcd == 4), 
+    show.p.overall = TRUE)
+```
+
+```{r, echo=FALSE, warning=FALSE}
+export2md(tab_goldcd2, size = 7, caption = "Summary descriptives table by cluster in GOLDCD 2")
+export2md(tab_goldcd3, size = 7, caption = "Summary descriptives table by cluster in GOLDCD 3")
+export2md(tab_goldcd4, size = 7, caption = "Summary descriptives table by cluster in GOLDCD 4")
+```
+
+```{r, eval = FALSE}
+# Note: This table shows the cluster intensity stratified by GOLDCD category.
+# It has been impossible to fit the table to PDF output
+res <- compareGroups(cluster ~ intensity, data = assay_features, max.ylev = 6)
+restab <- createTable(res)
+export2md(strataTable(restab, "goldcd"), size = 7)
+export2pdf(strataTable(restab, "goldcd"), size = 7, file = paste0(title, "taula.pdf"))
+```
+
+
+### 5.2 Descriptive tables by Cluster and GOLDCD: 
+
+ We can compute a graphical cluster-distribution comparison using boxplot (Figure 5) and estimate the relationship between GOLDCD and different clusters performing an ANOVA analysis (just to give an idea about the behavior of the variables):  
+ 
+
+```{r, fig.align='center', fig.cap="Cluster comparision in GOLDCD"}
+ggplot(na.omit(assay_features), aes(x=factor(cluster), y=intensity, fill=goldcd)) +
+  geom_boxplot() + ggtitle("Cluster boxplot by COPD category")
+
+# Perform anova, including interaction between factors in the model
+modelo <- aov(intensity ~ factor(goldcd)*cluster, data=na.omit(assay_features))
+summary(modelo)
+```
+
+From the ANOVA analysis, we observe significant effect in intensity variation due to both the GOLDCD and the interaction between GOLDCD and clusters; suggesting that the effect of GOLDCD varies and depends on the cluster in question, or vice-versa. 
+
+```{r, echo=FALSE, eval=FALSE}
+prova$mean <- round(prova$mean, digits = 3)
+prova$sd <- round(prova$sd , digits = 3)
+(kbl(prova[,2:4], caption = "Cluster means by COPD category") %>%
+  kable_paper("striped", full_width = F) %>%
+  pack_rows("GOLDCD 2", 1, 8) %>%
+  pack_rows("GOLDCD 3", 9, 16) %>%
+  pack_rows("GOLDCD 4", 17, nrow(prova)))
+```
+
+
+### 5.3. Extract PCA from each cluster
+
+In order to choose a representative value for each cluster, instead of the mean of all the cluster's components, we will perform a Principal Component Analysis for each.
+The dimensionality of our two-dimensional data can be reduced to a single dimension by projecting each sample onto the first principal component (Plot 1B). Technically speaking, the amount of variance retained by each principal component is measured by the so-called eigenvalue.
+
+```{r, warning=FALSE, message=FALSE, results = FALSE}
+# ASSAY FEATURES DATA FRAME Access to assay data:
+assay_features <- data.frame(assay(rdr_L1_final, "adjusted_min_int_center"))
+
+# assign to each feature its corresponding cluster:
+assay_features <- cbind(assay_features, features_clust$cluster)
+
+# set names
+names(assay_features)[1774] <- "cluster"
+feature_name <- rownames(assay_features)
+pca_dat <- data.frame(assay_features)
+# Remove "X" to match variable names
+names(pca_dat)[15:16] <- c("10Percentile", "90Percentile")
+
+
+# set a function to obtain PCA for each cluster
+cluster_pca1 <- function (index) {
+  pca_dat_c <- pca_dat[pca_dat$cluster == index,-ncol(pca_dat)] # select features from cluster
+  pca <- prcomp(t(pca_dat_c), scale. = TRUE) #transpose data!
+  pca$x[,1] # # the value of the rotated data (the centered (and scaled
+        # if requested) data multiplied by the rotation matrix) is returned.
+}
+```
+
+A biplot is a type of plot that will allow us to visualize how the samples relate to one another in our PCA (which samples are similar and which are different) and will simultaneously reveal how each variable contributes to each principal component.
+
+```{r}
+# set a function to obtain pca plot for each cluster
+pca_plot_funct <- function (index) {
+  pca_dat_c <- pca_dat[pca_dat$cluster == index,-ncol(pca_dat)]
+  pca <- prcomp(t(pca_dat_c), scale. = TRUE)
+  plot_title = paste0("PCA biplot for Cluster ", index)
+  ggbiplot(pca, alpha = 0.3) + ggtitle(plot_title)
+}
+```
+
+We can also examine more deeply PCA setting more functions:
+
+```{r, eval=TRUE, echo=TRUE}
+# set a function to obtain the percentage of variance explained by the
+# first principal component (PCA1):
+cluster_eigen <- function (index) {
+  #cl <- features_clust$feature[features_clust$cluster == as.numeric(index)]
+  pca_dat_c <- pca_dat[pca_dat$cluster == index,-ncol(pca_dat)]
+  pca <- prcomp(t(pca_dat_c), scale. = TRUE)
+  eigen <- get_eigenvalue(pca)
+  return(eigen[1:2,c(1,3)])
+}
+
+# set a function to obtain the feature with maximum contribution
+# within the PCA1 for each cluster: 
+cluster_contrib <- function (index) {
+  pca_dat_c <- pca_dat[pca_dat$cluster == index,-ncol(pca_dat)]
+  pca <- prcomp(t(pca_dat_c), scale. = T)
+  var <- get_pca_var(pca)
+  contributions = var$contrib
+  return(paste0("Maximum contribution: ", names(which.max(contributions[,1])), "; Value (%): ", 
+round(contributions[which.max(contributions[,1])],2),
+", Expected contribution (%): ", 
+round((1/length(features_clust$feature[features_clust$cluster == as.numeric(index)]))*100, 2)
+))
+}
+```
+
+```{r}
+# apply functions
+clusters <- unique(features_clust$cluster) %>% purrr::set_names()
+pca1_clusters <- c(clusters) %>% map(cluster_pca1) # PCA1 for each feature
+pca_eigen <- c(clusters) %>% map(cluster_eigen) # PCA1 and PCA2 variance explained
+pca_contrib <- c(clusters) %>% map(cluster_contrib) # Max contribution
+pca_plot <- c(clusters) %>% map(pca_plot_funct)
+save(pca1_clusters, pca_eigen,
+     pca_contrib, pca_plot, file = paste0(directory, "/data/pca1_results.rda")) # save results
+```
+
+```{r, echo=FALSE, eval=FALSE, message=FALSE}
+load("pca_results.rda")
+load("pca1_results.rda")
+```
+
+```{r, eval = FALSE, out.width="100%"}
+# print results of PCA
+for (i in 1:length(pca_plot)) {
+  print(pca_plot[[i]])
+}
+```
+```{r, echo=FALSE}
+par(mfrow = c(2,1))
+pca_plot[[1]]
+pca_plot[[2]]
+```
+```{r, echo=FALSE}
+pca_plot[[3]]
+```
+
+```{r, echo=FALSE}
+par(mfrow = c(2,1))
+pca_plot[[4]]
+pca_plot[[5]]
+```
+ 
+```{r, echo=FALSE}
+pca_plot[[6]]
+```
+ 
+
+The eigenvalues measure the amount of variation retained by each principal component. Eigenvalues are large for the first PCs and small for the subsequent PCs.
+An eigenvalue > 1 indicates that PCs account for more variance than accounted by one of the original variables in standardized data. This is commonly used as a cutoff point for which PCs are retained. This holds true only when the data are standardized.  
+Below are presented the eigenvalues and the account of variance (in percentage) that explain first and second principal components (Dim 1 and Dim 2 respectively):
+
+```{r}
+pca_eigen
+```
+
+var$contrib: contains the contributions (in percentage) of the variables to the principal components. The contribution of a variable (var) to a given principal component is (in percentage) : (var.cos2 * 100) / (total cos2 of the component).  
+  
+  Here we present the feature which accounts for the maximum contribution within the PCA1 for each cluster and it's level of contribution (in percentage):
+  
+```{r}
+pca_contrib
+```
+ 
+Although in some cases the first principal component does not account for the major part of variance (more than 50%), the eigenvalues indicates that PCs account for more variance than accounted by one of the original variables in standardized data, thus we will model analysis using PCA1 as a representative value for each cluster.
+ 
+```{r, echo = FALSE, eval=FALSE}
+library("corrplot")
+var <- get_pca_var(pca1)
+corrplot(var$cos2, is.corr=FALSE)
+var$cos2
+```
+
+```{r, echo=FALSE, eval=FALSE}
+corrplot(var$contrib, is.corr=FALSE) 
+# Contributions of variables to PC1
+fviz_contrib(pca1, choice = "var", axes = 1, top = 10)
+#The total contribution to PC1 and PC2 
+fviz_contrib(pca1, choice = "var", axes = 1:2, top = 10)
+
+# The most important 
+fviz_pca_var(pca1, col.var = "contrib",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07")
+             )
+```
+
+
+## 6. Mixed model analysis
+
+To determine wether the radiomic features are associated to clinical measures recorded in period 1 (t1) and period 2 (t3) and its evolution, a mixed model analysis is performed. 
+
+### 6.1. Data preparation
+
+The first step is to prepare data and associate radiomic measures to clinical observations. To have one unique value per cluster, the mean from all the radiomic features composing each cluster was performed for every subject.   
+
+```{r}
+cov_data <- colData %>% 
+  select(contains("FEV") | contains("EMPH"), # select FEV and EMPHCD variables
+        FVCPSPC.t1, FVCPSPC.t3, D_SUBJID, AGE, SEX.t1, CENTREID, GOLDCD,
+         SMOKER, BMI.t1, mask_id) # select other variables of interest
+
+# Organize cluster-radiomic features (RAD_DATA):
+
+# access to assay data:
+rad_data <- data.frame(assay(rdr_L1_final, "adjusted_min_int_center"))
+
+# assign cluster to each corresponding feature:
+rad_data <- cbind(rad_data, features_clust$cluster)
+
+# set names
+names(rad_data)[1774] <- "cluster"
+feature_name <- rownames(rad_data)
+rownames(rad_data) <- NULL
+rad_data$feature <- feature_name
+# Change colnames to match cov_data
+colnames(rad_data) <-  sub("X", "", colnames(rad_data))
+
+# group by cluster. Compute the mean for each cluster:
+rad_data <- aggregate(rad_data[,1:1773], by = list(rad_data$cluster), FUN = mean)
+names(rad_data)[names(rad_data) == "Group.1"] <- "cluster"
+
+# transpose radiomic data to have cluster means as columns: 
+rad_data <- data.frame(t(rad_data))
+names(rad_data) <- c("C1", "C2", "C3", "C4", "C5", "C6")
+rad_data <- rad_data [-1,]
+
+
+# prepare same dataset but with PCA1 instead of the means:
+rad_data_pca <- data.frame()
+for (i in 1:length(pca1_clusters)) {
+  rad_data_pca <- rbind(rad_data_pca,pca1_clusters[[i]])
+}
+colnames(rad_data_pca) <- rownames(rad_data)
+rownames(rad_data_pca) <- c("pcaC1", "pcaC2", "pcaC3", "pcaC4", "pcaC5", 
+                            "pcaC6")
+rad_data_pca <- data.frame(t(rad_data_pca))
+
+
+# Visualize both dataframes:
+head(cov_data)[,1:6]
+head(rad_data)[,1:5]
+head(rad_data_pca)[,1:5]
+
+# Merge three dataframes by subjects (row.names)
+rad_data_comp <- merge(rad_data, rad_data_pca, by = 'row.names', all = TRUE)
+rownames(rad_data_comp) <- rad_data_comp$Row.names
+
+model_data <- merge(cov_data, rad_data_comp, by.x = 'mask_id', by.y = "Row.names", 
+                      all = TRUE)
+rownames(model_data) <- model_data$mask_id
+
+
+# Set the internal structure of the dataset:
+model_data <- model_data %>%
+  mutate_at(c("D_SUBJID", "CENTREID", "mask_id"), as.character) %>% 
+  mutate_at(c("SEX.t1",
+              "GOLDCD", "SMOKER"), as.factor) %>% 
+  mutate_at(c("C1", "C2", "C3", "C4", "C5", "C6", 
+              "pcaC1", "pcaC2", "pcaC3", "pcaC4", "pcaC5", 
+                            "pcaC6", "BMI.t1", "AGE"), 
+            as.numeric) %>%
+  mutate_at("FEVVCPD.t3", as.integer)
+
+str(model_data)
+save(model_data, file = paste0(directory, "/data/model_data.rda"))
+```
+
+As we will be working on repeated measures, we have to transform the data set into longer format to have one record for each observation:
+
+```{r}
+model_data_longer <- model_data %>% pivot_longer(
+  cols = names(model_data[,1:20]),
+               names_to = c(".value", "time"), 
+               names_pattern = "(\\w+).(t1|t3)",
+  values_drop_na = FALSE)
+model_data_longer$time <- as.factor(model_data_longer$time)
+head(model_data_longer)
+```
+
+We deleted EMPHET from the analysis analysis, it does not have sense since emphysema is diagnosed through CT scans and we have just few subjects categorized without emphysema. 
+
+
+### 6.2 Analysis
+
+Once we have the data properly organized, we can model changes in different clinical measures related to COPD. The response variables studied are:  
+  
+  - **Variables related with FEV**, which represents the amount of air that can be forced from lungs. All this variables are numerical.  
+    + FEV1
+    + FEV1PSDS
+    + FEV1PSPC
+    + FEV1REV
+    + FEVVCPD
+    + FVCPSPC
+
+For the FEV related variables a Linear Mixed Model was applied.
+These models were all adjusted by: `time`, `age`, `sex` reported in period 1, `goldcd`, `smoker`, `centre`, `subject` and the 8 cluster's means (`c1`, `c2`, `c3`, `c4`, `c5`, `c6`) or the 8 cluster's PCA (`pcaC1`, `pcaC2`, `pcaC3`, `pcaC4`, `pcaC5`, `pcaC6`. Variables center and subject were treated as random effect variables and `subject_id` was assumed to be nested to `center_id`. 
+
+The models were applied to each response variable using `map` function.  
+  
+#### 6.2.1 LMER  
+
+LMM implementation with `lmer` function for mean and PCA1:
+
+```{r, warning=FALSE}
+# Set lme function for means and PCA:
+lmer_fun_means = function(response) {
+  form = reformulate(c("time", "AGE", "SEX.t1", "SMOKER", "BMI.t1",  
+               "(1 | CENTREID)",  "(1| CENTREID / D_SUBJID)", "C1", "C2",  
+               "C3", "C4", "C5", "C6"), response = response)
+  lmer(form, data = model_data_longer)
+}
+
+lmer_fun_pca = function(response) {
+  form = reformulate(c("time", "AGE", "SEX.t1", "SMOKER", "BMI.t1",  
+               "(1 | CENTREID)",  "(1| CENTREID / D_SUBJID)","pcaC1", "pcaC2", 
+               "pcaC3", "pcaC4", "pcaC5", "pcaC6"), 
+               response = response)
+  lmer(form, data = model_data_longer)
+}
+
+# make a vector of the response variable names as strings and set_names()
+# to keep track of which variable goes with which model
+
+response_vars <- c("FEV1", "FEV1PSDS", "FEV1PSPC", "FEV1REV", "FEVVCPD", "FVCPSPC") %>% 
+  purrr::set_names()
+
+# apply function to response_vars, storing the results in `mean_models` or
+#pca_models
+mean_models = response_vars %>% map(lmer_fun_means)
+pca_models = response_vars %>% map(lmer_fun_pca)
+
+# apply Anova function to models obtained in order to obtain p-values properly
+results_anova_mean = mean_models %>% map(car::Anova) 
+results_anova_pca = pca_models %>% map(car::Anova) 
+
+# Store summary results in a list:
+sum_list = list()
+for (i in 1:length(mean_models)){
+  sum = as.matrix(summary(mean_models[[i]])$coefficients,  15, 6)
+  sum_list[[i]] = sum
+  names(sum_list)[i] = names(mean_models)[i]
+}
+sum_list_pca = list()
+for (i in 1:length(pca_models)){
+  sum = as.matrix(summary(pca_models[[i]])$coefficients,  15, 6)
+  sum_list_pca[[i]] = sum
+  names(sum_list_pca)[i] = names(pca_models)[i]
+}
+
+
+
+write.xlsx(results_anova_pca,  paste0(directory, "/results/Radiomic/pca1.xlsx"))
+write.xlsx(results_anova_mean,  paste0(directory, "/results/Radiomic/lmm_mean.xlsx"))
+```
+
+Results from Anova application (`results_anova_mean` and `results_anova_pca`) are listed in following section (6.3). `Sum_list` and `sum_list_pca` contains a matrix with each model summary, and the entire list is presented in Appendix 3.1.
+
+\pagebreak
+
+Checking of the model assumptions (normality and homoscedasticity):
+
+```{r, echo = FALSE, eval = FALSE, warning=FALSE, out.width="75%", fig.align='center', fig.cap="Fitted vs. Residuals FEV variables' models"}
+
+# Homoscedasticity
+jpeg(file="homoscedasticity.jpeg")
+par(mfrow = c(2,3))
+for (i in 1:(length(models)-1)) {
+  plot(fitted(models[[i]]),residuals(models[[i]]),xlab="Fitted",
+       ylab="Residuals", main = paste0("Residuals vs. Fitted, \n VR: ",
+                                       response_vars[i]))
+  abline(0,0, col = "red")
+}
+  plot(fitted(models_glmer[[2]]),residuals(models_glmer[[2]]),xlab="Fitted",
+       ylab="Residuals", main = paste0("Residuals vs. Fitted, \n VR: ",
+                                       response_vars_b[2]))
+  abline(0,0, col = "red")
+  dev.off
+  
+# Normality  
+jpeg(file = "normality.jpeg")
+par(mfrow = c(2,3))
+for (i in 1:(length(models)-1)) {
+  qqnorm(residuals(models[[i]]), main = paste0("Q-Q PLOT \n VR: ",
+                                       response_vars[i]))
+  qqline(residuals(models[[i]]), col = "red")
+}
+  qqnorm(residuals(models_glmer[[2]]), main = paste0("Q-Q PLOT \n VR: ",
+                                       response_vars_b[2]))
+  qqline(residuals(models_glmer[[2]]), col = "red")
+dev.off()
+```
+
+### - Detection of multicollinearity using VIF:
+
+```{r}
+library(car)
+library(misty)
+(vif1 <- car::vif(pca_models$FEV1))
+vif1 > 10
+(vif2 <- car::vif(pca_models$FEV1PSDS))
+vif2 > 10
+(vif3 <- car::vif(pca_models$FEV1PSPC))
+vif3 > 10
+(vif4 <- car::vif(pca_models$FEV1REV))
+vif4 > 10
+(vif5 <- car::vif(pca_models$FEVVCPD))
+vif5 > 10
+(vif6 <- car::vif(pca_models$FVCPSPC))
+vif6 > 10
+```
+
+In all cases clusters 4 and 5 present high VIF values indicating multicollinearity. In order to correct this phenomena, measures from cluster 5 were deleted from the model:
+
+```{r}
+# Set lme function for means and PCA:
+lmer_fun_means = function(response) {
+  form = reformulate(c("time", "AGE", "SEX.t1", "SMOKER", "BMI.t1",  
+               "(1 | CENTREID)",  "(1| CENTREID / D_SUBJID)", "C1", "C2",  
+               "C3", "C4", "C6"), response = response)
+  lmer(form, data = model_data_longer)
+}
+lmer_fun_pca = function(response) {
+  form = reformulate(c("time", "AGE", "SEX.t1", "SMOKER", "BMI.t1",  
+               "(1 | CENTREID)",  "(1| CENTREID / D_SUBJID)","pcaC1", "pcaC2", 
+               "pcaC3", "pcaC4","pcaC6"), 
+               response = response)
+  lmer(form, data = model_data_longer)
+}
+
+# make a vector of the response variable names as strings and set_names()
+# to keep track of which variable goes with which model
+
+response_vars <- c("FEV1", "FEV1PSDS", "FEV1PSPC", "FEV1REV", "FEVVCPD", "FVCPSPC") %>% 
+  purrr::set_names()
+
+# apply function to response_vars, storing the results in `mean_models` or
+# `pca_models`
+pca_models = response_vars %>% map(lmer_fun_pca)
+
+# apply Anova function to models obtained in order to obtain p-values properly
+results_anova_mean = mean_models %>% map(car::Anova) 
+results_anova_pca = pca_models %>% map(car::Anova) 
+
+# Store summary results in a list:
+sum_list = list()
+for (i in 1:length(mean_models)){
+  sum = as.matrix(summary(mean_models[[i]])$coefficients,  15, 6)
+  sum_list[[i]] = sum
+  names(sum_list)[i] = names(mean_models)[i]
+}
+sum_list_pca = list()
+for (i in 1:length(pca_models)){
+  sum = as.matrix(summary(pca_models[[i]])$coefficients,  15, 6)
+  sum_list_pca[[i]] = sum
+  names(sum_list_pca)[i] = names(pca_models)[i]
+}
+
+
+
+write.xlsx(results_anova_pca,  paste0(directory, "/results/Radiomic/lmm_pca1_vif.xlsx"))
+write.xlsx(results_anova_mean,  paste0(directory, "/results/Radiomic/lmm_mean_vif.xlsx"))
+
+# Check for correction of multicollinearity
+(vif1 <- car::vif(pca_models$FEV1))
+vif1 > 10
+(vif2 <- car::vif(pca_models$FEV1PSDS))
+vif2 > 10
+(vif3 <- car::vif(pca_models$FEV1PSPC))
+vif3 > 10
+(vif4 <- car::vif(pca_models$FEV1REV))
+vif4 > 10
+(vif5 <- car::vif(pca_models$FEVVCPD))
+vif5 > 10
+(vif6 <- car::vif(pca_models$FVCPSPC))
+vif6 > 10
+```
+
+#### 6.2.2. Assumptions verification:
+
+In order to confirm the normality and homoscedasticity of residuals, we can compute a function to display qqplot and a residuals vs. fitted values plot for each model. Remember that in this analysis we used clinical outcomes previously transformed in order to apply properly regression methods. Although the transformations applied, `FEV1PSPC`, `FEV1REV` still since the residuals don't fulfill the assumption of homoscedasticity (which means that the variance of the residual terms in a model is constant).  
+  
+  
+  -  **MEANS:**
+
+```{r, warning=FALSE, out.width="75%", fig.align='center', fig.cap="QQplot FEV variables' models"}
+# QQPLOT for each model
+par(mfrow = c(2,3))
+for (i in 1:length(mean_models)) {
+  qqnorm(residuals(mean_models[[i]]), main = paste0("Q-Q PLOT \n VR: ",
+                                       response_vars[i]))
+  qqline(residuals(mean_models[[i]]), col = "red")
+}
+```
+```{r, warning=FALSE, out.width="75%", fig.align='center', fig.cap="Fitted vs. Residuals FEV variables' models"}
+# Residuals against fitted plots:
+par(mfrow = c(2,3))
+for (i in 1:length(mean_models)) {
+  plot(fitted(mean_models[[i]]),residuals(mean_models[[i]]),xlab="Fitted",
+       ylab="Residuals", main = paste0("Residuals vs. Fitted, \n VR: ",
+                                       response_vars[i]))
+  abline(0,0, col = "red")
+}
+```
+
+  -  **PCA1:**
+
+```{r, warning=FALSE, out.width="75%", fig.align='center', fig.cap="QQplot FEV variables' models"}
+
+pdf(paste0(title, "/images/qq_plot_lmm.pdf"))
+# QQPLOT for each model
+par(mfrow = c(2,3))
+for (i in 1:length(pca_models)) {
+  qqnorm(residuals(pca_models[[i]]), main = paste0("Q-Q PLOT \n VR: ",
+                                       response_vars[i]))
+  qqline(residuals(pca_models[[i]]), col = "red")
+}
+dev.off()
+```
+```{r, warning=FALSE, out.width="75%", fig.align='center', fig.cap="Fitted vs. Residuals FEV variables' models"}
+# Residuals against fitted plots:
+pdf(paste0(title, "/images/res_plot_lmm.pdf"))
+par(mfrow = c(2,3))
+for (i in 1:length(pca_models)) {
+  plot(fitted(pca_models[[i]]),residuals(pca_models[[i]]),xlab="Fitted",
+       ylab="Residuals", main = paste0("Residuals vs. Fitted, \n VR: ",
+                                       response_vars[i]))
+  abline(0,0, col = "red")
+}
+dev.off()
+```
+
+
+
+### 6.3. Results
+
+In this section the results obtained from Anova (type = II) for both models applied (lmm and glm) are shown.  
+Although some transformations should be done and additional modelling performed, with this analysis we could identify some clusters of radiomic features that seems to explain in a significant way (p-value < 0.05) the variance observed in clinical measures related with COPD.  
+
+```{r}
+results_anova_mean
+```
+
+```{r}
+results_anova_pca
+write.xlsx(results_anova_pca, file =  paste0(directory, "/results/Radiomic/pca_results6_vif.xlsx"))
+
+# Access to effect sizes:
+summ <- cbind(as.data.frame(summary(pca_models$FEV1)$coefficients),
+             as.data.frame(summary(pca_models$FEV1PSDS)$coefficients),
+             as.data.frame(summary(pca_models$FEV1PSPC)$coefficients),
+             as.data.frame(summary(pca_models$FEV1REV)$coefficients),
+             as.data.frame(summary(pca_models$FEVVCPD)$coefficients),
+             as.data.frame(summary(pca_models$FVCPSPC)$coefficients))
+write.xlsx(summ, file = paste0(directory, "/results/Radiomic/effect_size.xlsx"))
+
+```
+
+
+
+## 7. Multivariate  non parametric analysis using MANTA
+
+We will use multivariate non parametric analysis to describe the 6 radiomic clusters obtained. With manta library we will set a matrix with all the radiomic features for each cluster and try to relate them with clinical measures and covariates. By this way we will identify the radiomic features that are affected by clinical measures such as FEV1:
+
+Since it is not possible to apply mixed models using manta, we will compute the change in clinical outcomes in order to exclude the individual effect and to model the effect of change in clinical outcomes to radiomic features. In this case, as we are applying a non parametric test and outcome are no longer the clinical outcomes, we can continue working with clinical outcomes without transformation
+
+```{r, eval=TRUE}
+colData <- colData_raw
+```
+
+Since we are assessing for the change in some clinical measures, we adjust the radiomic features by the difference between clinical measures collected in time1 and time 3. The clinical outcomes can not adjust a same shared model since these measures are highly correlated and the model would not be reliable; so the analysis will be performed for each cluster and each clinical outcome:
+
+```{r}
+manta_funct_ch = function(index, clinical_outcome) {
+  features_clust = 
+  t(assay_features[assay_features$cluster == index,-ncol(assay_features)])
+  manta(features_clust ~ AGE + SEX.t1 + SMOKER + BMI.t1 + CENTREID + clinical_outcome, 
+        data = colData)
+  }
+
+manta_results_ch1  = clusters %>% map(manta_funct_ch, clinical_outcome = colData$FEV1.CH) 
+manta_results_ch2  = clusters %>% map(manta_funct_ch, clinical_outcome = colData$FEV1PSDS.CH) 
+manta_results_ch3  = clusters %>% map(manta_funct_ch, clinical_outcome = colData$FEV1PSPC.CH) 
+manta_results_ch4  = clusters %>% map(manta_funct_ch, clinical_outcome = colData$FEV1REV.CH) 
+manta_results_ch5  = clusters %>% map(manta_funct_ch, clinical_outcome = colData$FEVVCPD.CH) 
+manta_results_ch6  = clusters %>% map(manta_funct_ch, clinical_outcome = colData$FVCPSPC.CH) 
+
+# Results for change in FEV1:
+manta_results_ch1
+
+# Results for change in FEV1PSDS:
+manta_results_ch2
+
+# Results for change in FEV1PSPC:
+manta_results_ch3
+
+# Results for change in FEV1REV:
+manta_results_ch4
+
+# Results for change in FEVVCPD:
+manta_results_ch5
+
+# Results for change in FVCPSPC:
+manta_results_ch6
+```
+
+
+\pagebreak
+
+## Appendix
+
+### 1. Radiomic feature's summary statistics
+
+```{r summary_table}
+st(data.frame(features_adj)[1:50])
+st(data.frame(features_adj)[51:ncol(features_adj)])
+```
+
+### 2. Features assignments to clusters (data frame)
+
+```{r items_clust_dataframe, echo = FALSE}
+features_clust <- features_clust[order(features_clust$cluster),]
+kable(features_clust[1:50,], format = "latex")
+kable(features_clust[51:101,], format = "latex")
+```
+
+### 3. Summary results for mixed  models:
+
+#### 3.1. LMER
+
+```{r}
+# Results for LMER models with means:
+sum_list
+```
+
+#### 3.2. GLMER
+
+```{r}
+# Results for LMER models with pca:
+sum_list_pca
+```
