@@ -4,6 +4,8 @@ Repository of R/Bioc/shell code of master theses and graduate final projects **_
 
 # MSc thesis projects 
 
+- Berta Franch Martínez. Transcriptomic effect of radiomic features in the change of lung function patients with chronic obstructive pulmonary disease (COPD). Master in Bioinformatics & Biostatistics, Universitat Oberta de Catalunya (UOC). January 2023. [Script Repository](https://github.com/isglobal-brge/master_thesis/tree/master/Radiomic_genomic)
+
 - Carlos Lopez. RNA-seq analysis using radiomic features calculated from lungs of patients with COPD. Master in Bioinformatics, Universitat Autonoma de Barcelona (UAB). July 2022. [Script Repository](https://github.com/isglobal-brge/master_thesis/tree/master/Radiomic_genomic).
 
 - Carla Casanova. RNA-seq analysis using radiomic features calculated from lungs of patients with COPD. Master in Bioinformatics, Universitat Autonoma de Barcelona (UAB). July 2022. [Script Repository](https://github.com/isglobal-brge/master_thesis/tree/master/Radiomic_transcriptomic).
