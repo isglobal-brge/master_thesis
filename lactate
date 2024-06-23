@@ -1,0 +1,23 @@
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(car)
+library(minpack.lm)
+library(nls2)
+library(segmented)
+library(drc)
+library(devtools)
+library(aomisc)
+library(openxlsx)
+library(Matrix)
+
+datos <- read_excel("C:/Users/gerar/OneDrive/Documentos/data_lactate.xlsx")
+datos
+
+lactato_reposo <- datos$lactate[1]
+lactato_reposo
+  
+datos_sin_reposo <- datos[-1,]
+datos_sin_reposo
+datos$log_power <-log(datos$power)
+datos$log_lactate <-log(datos$lactate)
