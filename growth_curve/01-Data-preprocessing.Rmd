@@ -1,0 +1,301 @@
+---
+title: '1 Data Preprocessing: Echocardiograms and Densitometries in Athletes'
+author: 
+  - name: "Júlia Cano Raluy"
+    affiliation: "Mathematics student at Autonomous University of Barcelona (UAB)"
+  - name: "Juan R González"
+    affiliation: 
+      - "Bioinformatics Research Group in Epidemiology (BRGE), Barcelona Institute for Global Health (ISGlobal)"
+      - "Department of Mathematics, Autonomous University of Barcelona (UAB)"
+    email: juanr.gonzalez@isglobal.org
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+packages <- c("knitr", "rstudioapi", "readxl", "dplyr", "lubridate", "stringr", "tidyr")
+
+install_and_load <- function(package) {
+  if (!require(package, character.only = TRUE)) {
+    install.packages(package, dependencies = TRUE)
+    library(package, character.only = TRUE)
+  }
+}
+
+invisible(lapply(packages, install_and_load))
+```
+
+
+##  Contents
+
+1. [Packages Used and Data Loading](#packages-used-and-data-loading)
+2. [Echocardiogram and Densitometry](#echocardiogram-and-densitometry)
+   1. [Transform Data](#transform-data)
+   2. [Data Filtering](#data-filtering)
+   3. [Duplicate Removal](#duplicate-removal)
+   4. [Value Imputation](#value-imputation)
+   5. [Section Categories](#section-categories)
+   6. [Value Imputation by Matches](#value-imputation-by-matches)
+
+## Packages used and Data loading 
+
+We have two databases, one on echocardiograms and another on densitometries in athletes. We are going to preprocess data in both.
+
+```{r}
+#Data loading
+document_context <- rstudioapi::getActiveDocumentContext()
+
+rmarkdown_file_path <- document_context$path
+rmarkdown_directory <- dirname(rmarkdown_file_path)
+
+setwd(rmarkdown_directory)
+list.files(rmarkdown_directory)
+
+densitometria <- read_excel("desitometrias.xlsx")
+ecocardiograma <- read_excel("ecocardiograma.xlsx")
+
+save(densitometria, file = "densitometria.Rdata")
+save(ecocardiograma, file = "ecocardiograma.Rdata")
+
+load("densitometria.Rdata")
+load("ecocardiograma.Rdata")
+
+```
+
+
+## Transform Data
+
+Convert the columns Season, Section, Team, and Test to factor and rename the other variables for better workability:
+```{r}
+dfpreeco <- ecocardiograma%>%
+  mutate(
+    Temporada = as.factor(Temporada),
+    `Secció` = as.factor(`Secció`),
+    Equip = as.factor(Equip),
+    `Id Persona` = as.factor(`Id Persona`),
+    Sexe = as.factor(Sexe),
+    Prova = as.factor(Prova),
+    `Data Prova` = `Data Prova`,
+    Any =  year(ecocardiograma$`Data Prova`)
+    ) %>% dplyr::rename(
+    Seccio =`Secció`,
+    Id = `Id Persona`,
+    Data_eco = `Data Prova`,
+    Diam_ven_esq_diast = `Diam. ventricle esq. Diast.`,
+    Diam_ven_esq_sist = `Diam. ventricle esq. Sist.`,
+    Gruix_enva = `Gruix tabic interventricular`,
+    Gruix_paret = `Gruix paret posterior V.E.`,
+    Auricula_esq = `Aurícula esq.`,
+    Diam_aorta = `Diam. arrel aorta`,
+    
+    Diam_ven_esq_i = `Diam. ventricle esq. Diast.(i)`,
+    Diam_ven_esq_sist_i = `Diam. ventricle esq. Sist.(i)`,
+    Gruix_enva_i = `Gruix tabic interventricul.(i)`,
+    Gruix_paret_i = `Gruix paret posterior V.E.(i)`,
+    Auricula_esq_i = `Aurícula esq.(i)`,
+    Diam_aorta_i = `Diam. arrel aorta(i)`
+  ) %>% dplyr::select(-c(Temporada, Naixament)) 
+    
+```
+
+```{r}
+dfpredensi <- densitometria%>%
+  mutate(
+    Secció = as.factor(Secció),
+    `Id Persona`= as.factor(`Id Persona`),
+    Sexe = as.factor(Sexe),
+    Prova = as.factor(Prova), 
+    Any  = year(densitometria$`Data Prova`))%>% 
+  rename_at(vars(starts_with("Densito - CC - ")), ~ gsub("[ .-]", "", .x)) %>% 
+  rename_at(vars(starts_with("DensitoCC")), ~ .x %>% str_replace("DensitoCC", "")) %>%
+  rename_at(vars(starts_with("Densito - CMG - ")), ~ gsub("[ .-]", "", .x)) %>% 
+  rename_at(vars(starts_with("DensitoCMG")), ~ .x %>% str_replace("DensitoCMG", "")) %>%
+  rename_at(vars(ends_with("(%Grasa)")), ~ gsub("\\(.*\\)", "_percentatge", .x)) %>%
+  rename_at(vars(ends_with("(g)")), ~ gsub("\\(.*\\)", "_g", .x)) %>%
+  rename_at(vars(ends_with("(kg)")), ~ gsub("\\(.*\\)", "_kg", .x)) %>% 
+  rename_with(~ str_replace_all(., "Grasa", "Greix")) %>% 
+  rename_with(~ str_replace_all(., "Magro", "Magra")) %>% 
+  rename_with(~ str_replace_all(., "Tejido", "Teixit")) %>% 
+    dplyr::rename(
+    Id = `Id Persona`,
+    Data_densi = `Data Prova`,
+    Seccio = `Secció`,
+    Tronc_total = `Tronco/Total`,
+    Cames_total = `Piernas/Total`,
+    Braços_Cames_total = `(Brazos+Piernas)/Tronco`,
+    Pes = TotalMasaTotal_kg)    %>% 
+  dplyr::select(-c(Temporada))
+```
+
+
+## Data Filtering
+
+Remove rows where all test columns are NA and provide no information.
+
+```{r}
+dfpreeco <- dfpreeco %>%
+  filter(!(rowSums(is.na(dplyr::select(., -c(Seccio, Equip, Id, Sexe, Edat, Prova, Data_eco, Any)))) >= 14 ) ) 
+```
+
+```{r}
+dfpredensi <- dfpredensi %>%
+  filter(!(rowSums(is.na(dplyr::select(., -c(Seccio, Id, Edat, Prova, Sexe,  Data_densi))))) >= 101)
+```
+
+
+
+## Duplicate Removal
+
+
+Now we check that there are no repeated tests, meaning that for the same person and same date:
+
+```{r}
+rep<- dfpreeco %>%
+  group_by(Id, Data_eco) %>%  
+  tally() %>% 
+  filter(n>1) %>% 
+  left_join(dfpreeco, by = c("Id", "Data_eco")) 
+
+dfpreeco <- dfpreeco %>% distinct(Id, Data_eco, .keep_all = TRUE)
+```
+
+```{r}
+rep <- dfpredensi %>%
+  group_by(Id, Data_densi) %>% 
+  tally() %>% 
+  filter(n>1) %>% 
+  left_join(dfpredensi, by = c("Id", "Data_densi"))
+
+dfpredensi <- dfpredensi %>% distinct(Id, Data_densi, .keep_all = TRUE)
+```
+
+
+## Value Imputation
+
+There are missing values in columns that might not be real. That is, the information might have been entered in another row. Specifically in the columns Section, Team, and Age. Let's impute the possible values:
+
+```{r}
+dfpreeco <- dfpreeco %>%
+  group_by(Id) %>%
+  fill(Seccio, .direction = "updown")  %>% 
+  fill(Equip, .direction = "updown") 
+```
+
+
+```{r}
+dfpredensi <- dfpredensi %>%
+  group_by(Id) %>%
+  fill(Seccio, .direction = "updown")  
+```
+  
+## Section Categories
+
+We unify the labels in the 'Secció' column by renaming the categories.
+
+```{r}
+dfpreeco <- dfpreeco %>%
+  mutate(Seccio = case_when(
+    Seccio == "FUTBOL FEMENÍ" ~ "FUTBOL",
+    Seccio == "VOLEIBOL FEMENÍ" ~ "VOLEIBOL",
+    Seccio == "BÀSQUET FEMENÍ" ~ "BÀSQUET",
+    TRUE ~ Seccio  
+  ))
+
+unique(dfpreeco$Seccio)
+names(ecocardiograma)
+```
+
+```{r}
+dfpredensi <- dfpredensi %>%
+  mutate(Seccio = case_when(
+    Seccio == "FUTBOL FEMENÍ" ~ "FUTBOL",
+    Seccio == "VOLEIBOL FEMENÍ" ~ "VOLEIBOL",
+    Seccio == "BÀSQUET FEMENÍ" ~ "BÀSQUET",
+    TRUE ~ Seccio  
+  ))
+
+unique(dfpredensi$Seccio)
+```
+
+
+## Value Imputation by Matches
+
+Find matching IDs between the two DataFrames to complete the Section column.
+
+```{r}
+id_na_seccio <- dfpredensi%>% 
+  group_by(Id) %>%
+  filter(all(is.na(Seccio))) %>% 
+  distinct(Id, Seccio)
+
+id_seccio <- dfpreeco %>%
+  group_by(Id) %>%
+  filter(!is.na(Seccio)) %>% 
+  distinct(Id, Seccio) %>% 
+  ungroup()
+
+id_seccio_densi <- inner_join(id_seccio, id_na_seccio, by = "Id") %>% 
+  dplyr::select(-Seccio.y) %>% 
+  dplyr::rename(Seccio = Seccio.x)
+```
+
+```{r}
+
+id_na_seccio <- dfpreeco%>% 
+  group_by(Id) %>%
+  filter(all(is.na(Seccio))) %>% 
+  distinct(Id, Seccio)
+
+id_seccio <- dfpredensi %>%
+  group_by(Id) %>%
+  filter(!is.na(Seccio)) %>% 
+  distinct(Id, Seccio) %>% 
+  ungroup()
+
+id_seccio_eco <- inner_join(id_seccio, id_na_seccio, by = "Id") %>% 
+  dplyr::select(-Seccio.y) %>% 
+  dplyr::rename(Seccio = Seccio.x)
+```
+
+```{r}
+dfpreeco <- left_join(dfpreeco, id_seccio_eco, by = "Id") %>% 
+                dplyr::rename(Seccio = Seccio.x)%>% 
+                mutate(
+                    Seccio = case_when(
+                      is.na(Seccio) ~ Seccio.y,
+                      TRUE ~ Seccio))%>% 
+                dplyr::select(-Seccio.y)%>% 
+                group_by(Id) %>%
+                fill(Seccio, .direction = "updown")  %>% 
+                ungroup()
+
+dfpredensi <- left_join(dfpredensi, id_seccio_densi, by = "Id") %>% 
+                dplyr::rename(Seccio = Seccio.x)%>% 
+                mutate(
+                    Seccio = case_when(
+                      is.na(Seccio) ~ Seccio.y,
+                      TRUE ~ Seccio)) %>% 
+                dplyr::select(-Seccio.y) %>% 
+                group_by(Id) %>%
+                fill(Seccio, .direction = "updown")  %>% 
+                ungroup()
+```
+
+
+```{r}
+glimpse(dplyr::select(dfpreeco, 1:8))
+glimpse(dplyr::select(dfpredensi, 1:8))
+```
+
+```{r, include=FALSE}
+save(dfpredensi, file = "densitometriapre1.Rdata")
+save(dfpreeco, file = "ecocardiogramapre1.Rdata")
+
+load("densitometriapre1.Rdata")
+load("ecocardiogramapre1.Rdata")
+objetos <- Filter(function(x) x != "dfpreeco" & x != "dfpredensi", ls())
+rm(list = objetos)
+```

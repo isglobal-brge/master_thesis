@@ -1,0 +1,568 @@
+---
+title: '2 Outliers Detection and Correction'
+author: 
+  - name: "Júlia Cano Raluy"
+    affiliation: "Mathematics student at Autonomous University of Barcelona (UAB)"
+  - name: "Juan R González"
+    affiliation: 
+      - "Bioinformatics Research Group in Epidemiology (BRGE), Barcelona Institute for Global Health (ISGlobal)"
+      - "Department of Mathematics, Autonomous University of Barcelona (UAB)"
+    email: juanr.gonzalez@isglobal.org
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+
+packages <- c("tidyverse","summarytools","caret","reshape2","ggplot2","recipes","factoextra","magick","lubridate","cowplot","zoo","mice",
+              "VIM","lattice","MVN","mvoutlier","gridExtra")
+
+
+install_and_load <- function(package) {
+  if (!require(package, character.only = TRUE)) {
+    install.packages(package, dependencies = TRUE)
+    library(package, character.only = TRUE)
+  }
+}
+
+invisible(lapply(packages, install_and_load))
+
+load("densitometriapre1.Rdata")
+load("ecocardiogramapre1.Rdata")
+```
+
+
+
+##  Contents
+
+1. [Univariate Outliers Detection](#univariate-outliers-detection)
+2. [Multivariate Outlier Detection using Mahalanobis Distance](#multivariate-outlier-detection-using-mahalanobis-distance)
+3. [Analysis of Variable Pairs in Echocardiogram Data](#analysis-of-variable-pairs-in-echocardiogram-data)
+   1. [Correction of Typographical Errors in Height and Weight](#correction-of-typographical-errors-in-height-and-weight)
+   2. [Analysis of Interventricular Septum and Posterior Wall Thickness](#analysis-of-interventricular-septum-and-posterior-wall-thickness)
+   4. [Analysis of Aorta and Left Atrium](#analysis-of-aorta-and-left-atrium)
+4. [Visualization of Data after Outlier Treatment](#visualization-of-data-after-outlier-treatment)
+
+
+
+We start by previewing a summary of univariate descriptive statistics.
+
+Densitometry:
+```{r}
+head(descr(dfpredensi,
+  FUN = descr, 
+  stats = "common",
+  transpose = TRUE))
+```
+
+Echocardiogram:
+```{r}
+stby(
+  data = dfpreeco,
+  INDICES = dfpreeco$Sexe, 
+  FUN = descr, 
+  stats = "common",
+  transpose = TRUE)
+```
+
+We visualize the density plots and boxplots of the variables.
+
+Densitometry:
+```{r, warning=FALSE, fig.width=7, fig.height=1.5}
+variablesdensi<-c("TotalCMO_g", "TotalMagra_g", "TotalTeixit_g", "Pes")
+data_long <- dfpredensi %>% dplyr::select(variablesdensi) %>%  gather()
+densityplot <- ggplot(data = data_long, aes(x = value)) +
+  facet_wrap(~ key, scales = "free", ncol = 5) +
+  geom_density() +
+  theme(axis.text.x = element_text(angle = 45, size = 7)) +
+  theme(strip.text.x = element_text(hjust = 0.1, size = 6))
+
+df.m <- dfpredensi  %>% dplyr::select(variablesdensi) %>%  gather()
+boxplot <- ggplot(data = df.m, aes(y = value)) +
+  geom_boxplot(dir = "h") +
+  facet_wrap(~ key, scales = "free", ncol = 4) +
+  labs(title = "Boxplot inicials de densitometries")+
+  theme(strip.text.x = element_text(hjust = 0.1, size = 6), strip.text.y = element_text(hjust = 0.1, size = 6))
+
+
+print(densityplot)
+print(boxplot)
+
+```
+
+```{r, warining=FALSE, fig.cap=c("boxplot Tejido_percentatge", "boxplot Región_percentatge", "boxplot Tejido_g", "boxplot Grasa_g", "boxplot Magro_g", "boxplot CMO_g", "boxplot kfg", "densitat Tejido_percentatge", "densitat Región_percentatge", "densitat Tejido_g", "densitat Grasa_g", "densitat Magro_g", "densitat CMO_g", "densitat kg"), fig.width=6, fig.height=6 }
+suffixes <- c("Teixit_percentatge", "Región_percentatge", "Teixit_g", "Greix_g", "Magra_g", "CMO_g", "Pes")
+
+densityplots <- lapply(suffixes, function(suffix) {
+  data_long <- dfpredensi %>% dplyr::select(ends_with(suffix))%>% gather()
+  ggplot(data = data_long, aes(x = value)) +
+    facet_wrap(~ key, scales = "free", ncol = 5) +
+    geom_density() +
+    theme(axis.text.x = element_text(angle = 45, size = 7)) +
+    theme(strip.text.x = element_text(hjust = 0.1, size = 6))
+})
+
+
+boxplotecocardio1<-dfpreeco %>%
+  keep(is.numeric) %>%                     
+  gather() %>%                            
+  ggplot(aes(y=value)) +                     
+    facet_wrap(~ key, scales = "free", ncol = 4) +   
+    geom_boxplot()   +
+  theme(axis.text.x = element_text(angle = 40))
+
+boxplots <- lapply(suffixes, function(suffix) {
+  df.m <- melt(dfpredensi %>% dplyr::select(ends_with(suffix)))
+  ggplot(data = df.m, aes(y = value)) +
+    geom_boxplot(dir= "h") +
+    facet_wrap(~ variable, scales = "free", ncol = 4) +
+    theme(strip.text.x = element_text(hjust = 0.1, size = 6), strip.text.y = element_text(hjust = 0.1, size = 6))
+})
+
+boxplots
+densityplots
+```
+
+Echocardiogram:
+
+```{r, warning=FALSE, fig.cap="density plot ecocardiograma", fig.width=3.5, fig.height=3.8 }
+
+variableseco <- c("Pes", "Diam_aorta")
+densityplotecocardio2 <- dfpreeco %>%
+  dplyr::select(variableseco) %>% 
+  keep(is.numeric) %>%                     
+  gather() %>%                            
+  ggplot(aes(value)) +                     
+    facet_wrap(~ key, scales = "free", ncol = 4) +   
+    geom_density()   +
+  theme(axis.text.x = element_text(angle = 40)) 
+
+boxplotecocardio2 <-dfpreeco %>%
+  dplyr::select(variableseco) %>% 
+  keep(is.numeric) %>%                     
+  keep(is.numeric) %>%                     
+  gather() %>%                            
+  ggplot(aes(y=value)) +                     
+    facet_wrap(~ key, scales = "free", ncol = 4) +   
+    geom_boxplot()   +
+  labs(title = "Boxplot inicials ecocardiogrames")+
+  theme(axis.text.x = element_text(angle = 40)) 
+
+densityplotecocardio2
+boxplotecocardio2
+
+
+variablesdensi <- c("TotalCMO_g", "TotalTeixit_g")
+
+densityplotdensi2 <- dfpredensi %>%
+  dplyr::select(variablesdensi) %>% 
+  keep(is.numeric) %>%                     
+  gather() %>%                            
+  ggplot(aes(value)) +                     
+    facet_wrap(~ key, scales = "free", ncol = 4) +   
+    geom_density()   +
+  theme(axis.text.x = element_text(angle = 40)) 
+
+boxplotdensi2 <-dfpredensi %>%
+  dplyr::select(variablesdensi) %>% 
+  keep(is.numeric) %>%                     
+  keep(is.numeric) %>%                     
+  gather() %>%                            
+  ggplot(aes(y=value)) +                     
+    facet_wrap(~ key, scales = "free", ncol = 4) +   
+    geom_boxplot()   +
+  labs(title = "Boxplot inicials densitometries")+
+  theme(axis.text.x = element_text(angle = 40)) 
+
+densityplotdensi2
+boxplotdensi2
+
+
+```
+
+```{r, fig.cap=c("densitat ecocardiograma", "boxplot ecocardiograma"), fig.width=6, fig.height=6 }
+densityplotecocardio1 <- dfpreeco %>%
+  keep(is.numeric) %>%                     
+  gather() %>%                            
+  ggplot(aes(value)) +                     
+    facet_wrap(~ key, scales = "free", ncol = 4) +   
+    geom_density()   +
+  theme(axis.text.x = element_text(angle = 40)) 
+
+boxplotecocardio1<-dfpreeco %>%
+  keep(is.numeric) %>%                     
+  gather() %>%                            
+  ggplot(aes(value)) +                     
+    facet_wrap(~ key, scales = "free", ncol = 4) +   
+    geom_boxplot()   +
+  theme(axis.text.x = element_text(angle = 40))
+
+densityplotecocardio1 
+boxplotecocardio1
+``` 
+
+
+## Univariate Outliers Detection
+
+We declare a function to calculate univariate outliers based on the interquartile range.
+```{R}
+IQRrow <- function(multiplier, data, variable) {
+   # 1st quartile
+  Q1 <- quantile(data[[variable]], 0.25, na.rm = TRUE)
+  # 3rd quartile
+  Q3 <- quantile(data[[variable]], 0.75, na.rm = TRUE)
+  # Interquartile range
+  IQR_value <- stats::IQR(data[[variable]], na.rm = TRUE)
+  lower_threshold <- Q1 - multiplier * IQR_value
+  upper_threshold <- Q3 + multiplier * IQR_value
+  # Rows with outliers
+  outliers <- which(data[[variable]] < lower_threshold | data[[variable]] > upper_threshold)
+  return(outliers)
+}
+
+```
+
+We select the numeric variables in the dataframe to calculate the IQR for each variable and replace univariate outliers with NAs.
+
+Densitometry:
+```{r}
+numericdensi <- unlist(names(dfpredensi %>% keep(is.numeric)))
+IQRdensi <- map(numericdensi, ~ IQRrow(4, dfpredensi, .x))
+names(IQRdensi) <- numericdensi
+IQRdensi <- IQRdensi[which(lengths(IQRdensi) > 0)]
+
+for (col in  names(IQRdensi)) {
+  dfpredensi[[col]] <- replace(dfpredensi[[col]],IQRdensi[[col]],NA)
+}
+```
+
+## Multivariate Outlier Detection using Mahalanobis Distance
+
+We use the Mahalanobis distance and p-values to ensure no multivariate outliers remain. Finally, we re-visualize the density plots to check the variables.
+
+Densitometry:
+```{r}
+df <- dfpredensi %>% keep(is.numeric)
+df$mahalnobis<- mahalanobis(df, colMeans(df), cov(df))
+df$pvalue <- pchisq(df$mahalnobis, df=3, lower.tail=FALSE)
+#In general, a p-value that is less than 0.001 is considered to be an outlier. In this case, all the p values are greater than 0.001
+row1 <- which(df$pvalue < 0.001)
+``` 
+
+## Analysis of Variable Pairs in Echocardiogram Data
+In this dataset, we will analyze variables not only individually but also in pairs, focusing on variables that have a strong relationship. We will also use the Mahalanobis Distance for multivariate outlier detection.
+
+### Correction of Typographical Errors in Height and Weight
+
+First, we manually correct typographical errors caused by incorrect data entry.
+```{r}
+dfpreeco <- dfpreeco %>% 
+  mutate(row = row_number())
+
+# Correct errors where both height and weight are less than 100
+row <- which(dfpreeco$Talla < 100 & dfpreeco$Pes < 100)
+dfpreeco$Talla[row] <- dfpreeco$Talla[row] + 100
+
+dfpreeco[["Talla"]][81] <- 170
+dfpreeco[["Talla"]][849] <- 193
+dfpreeco[["Talla"]][2179] <- NA
+dfpreeco[["Talla"]][5085] <- 140
+dfpreeco[["Talla"]][6100] <- 168
+dfpreeco[["Talla"]][4045] <- 190
+
+df <- dfpreeco[which(dfpreeco$Talla > 300), ]
+dfpreeco[["Talla"]][1817] <- 180.46
+dfpreeco[["Talla"]][1910] <- 148
+dfpreeco[["Talla"]][2953] <- 176.0
+dfpreeco[["Talla"]][3602] <- 177.0
+
+dfpreeco[["Talla"]][5145] <- 194
+dfpreeco[["Pes"]][5162] <- 185
+dfpreeco[["Pes"]][5390] <- 185
+dfpreeco[["Talla"]][2794] <- 137.0 
+
+dfpreeco[["Pes"]][2794] <- NA 
+dfpreeco[["Pes"]][2009] <- NA 
+dfpreeco[["Talla"]][2794] <- 186.0 
+dfpreeco[["Talla"]][2009] <- 147.0 
+dfpreeco[["Talla"]][980] <- 127 
+dfpreeco[["Pes"]][980] <- NA 
+
+dfpreeco[["Pes"]][2761] <- 28.7
+dfpreeco[["Pes"]][5270] <- 78.9  
+dfpreeco[["Talla"]][1977] <- NA 
+
+```
+
+Correction of Swapped Height and Weight Values:
+After visualizing the data with a scatter plot, it was identified that most errors were due to a swap between the "Height" and "Weight" columns. It seems they were accidentally swapped during data entry. To correct this, we use clustering techniques.
+
+```{r}
+rowna <- dfpreeco %>% filter(is.na(Pes) | is.na(Talla))
+df_nona <- na.omit(dfpreeco[, c("Talla", "Pes", "row")])
+dfpreeco_nona <- dfpreeco[dfpreeco$row %in% df_nona$row, ]
+
+set.seed(123)
+kmeans = kmeans(dfpreeco_nona[, c("Talla", "Pes")], 4)
+
+fviz_cluster(kmeans, 
+             data = dfpreeco_nona[, c("Talla", "Pes")],
+             palette = c("#00AFBB", "#E7B800", "#A8C100", "red"), 
+             geom = "point",
+             ellipse.type = "convex", 
+             ggtheme = theme_bw())
+
+ggplot(dfpreeco, aes(x = dfpreeco$Talla, y = dfpreeco$Pes)) +
+  geom_point() +
+  geom_text(label = rownames(dfpreeco)) +
+  stat_smooth(method = lm)
+
+dfpreeco <- dfpreeco_nona %>% filter(kmeans$cluster == 4) %>% mutate(
+  Pes_aux = Pes, 
+  Pes = Talla,
+  Talla = Pes_aux
+) %>% dplyr::select(-Pes_aux) %>% 
+  rbind(dfpreeco_nona %>% filter(kmeans$cluster != 4)) %>% 
+  rbind(rowna)
+
+ggplot(dfpreeco, aes(x = dfpreeco$Talla, y = dfpreeco$Pes)) +
+  geom_point() +
+  geom_text(label = rownames(dfpreeco)) +
+  stat_smooth(method = lm)
+
+dfpreeco[["Pes"]] <- replace(dfpreeco[["Pes"]], which(dfpreeco$Pes > 150), NA)
+
+```
+
+
+### Analysis of Left Ventricular Diameter (Diastolic/Systolic)
+Normal values for the left ventricular diameter vary by gender and the state of relaxation or contraction of the heart. For men, the normal diastolic diameter is 48-57 mm, and the normal systolic diameter is 28-34 mm. For women, the normal values are slightly lower, with a diastolic diameter of 44-54 mm and a systolic diameter of 24-30 mm.
+
+```{r}
+df.m <- melt(dfpreeco %>% dplyr::select(Diam_ven_esq_sist_i,Diam_ven_esq_i, Diam_ven_esq_sist, Diam_ven_esq_diast))
+ggplot(data = df.m, aes(y=value)) + 
+         geom_boxplot() + facet_wrap(~variable,ncol = 4)
+```
+
+```{r}
+rowdiast <- IQRrow(1.8, dfpreeco, "Diam_ven_esq_diast")
+rowsist<- IQRrow(2.5, dfpreeco, "Diam_ven_esq_sist")
+
+ggplot(dfpreeco, aes(x = Diam_ven_esq_diast, y = Diam_ven_esq_sist)) +
+  geom_point() +
+  geom_text(label = rownames(dfpreeco)) +
+  stat_smooth(method = lm) +
+  geom_point(data = dfpreeco[rowdiast, ], aes(color = "outliers diast"), size = 3) +
+  geom_point(data = dfpreeco[rowsist, ], aes(color = "outliers sist"), size = 3) +
+  scale_color_manual(values = c("outliers diast" = "red", "outliers sist" = "yellow"))
+
+dfpreeco[["Diam_ven_esq_diast"]][rowdiast] <- NA
+dfpreeco[["Diam_ven_esq_sist"]][rowsist] <- NA
+
+ggplot(dfpreeco, aes(x = Diam_ven_esq_diast, y = Diam_ven_esq_sist)) +
+  geom_point() +
+  geom_text(label = rownames(dfpreeco)) +
+  stat_smooth(method = lm) 
+```
+
+```{r}
+rownaesq <-which(dfpreeco$Diam_ven_esq_i>100)
+rownasist <- c(which(dfpreeco$Diam_ven_esq_sist_i>70), which(dfpreeco$Diam_ven_esq_sist_i<7))
+
+rowdiast <- IQRrow(3, dfpreeco, "Diam_ven_esq_i")
+rowsist <- IQRrow(4, dfpreeco, "Diam_ven_esq_sist_i")
+
+ggplot(dfpreeco, aes(x = Diam_ven_esq_i, y = Diam_ven_esq_sist_i)) +
+  geom_point() +
+  geom_text(label = rownames(dfpreeco)) +
+  stat_smooth(method = lm) +
+  geom_point(data = dfpreeco[rowdiast, ], aes(color = "outliers diast"), size = 3) +
+  geom_point(data = dfpreeco[rowsist, ], aes(color = "outliers sist"), size = 3) +
+  geom_point(data = dfpreeco[rownaesq, ], aes(color = "outliers diast"), size = 3) +
+  geom_point(data = dfpreeco[rownasist, ], aes(color = "outliers sist"), size = 3) +
+  scale_color_manual(values = c("outliers diast" = "red", "outliers sist" = "yellow", "outliers na diast" = "blue", "outliers na sist" = "blue"))
+
+dfpreeco[["Diam_ven_esq_i"]][rowdiast] <- NA
+dfpreeco[["Diam_ven_esq_sist_i"]][rowsist] <- NA
+dfpreeco[["Diam_ven_esq_i"]][rownaesq] <- NA
+dfpreeco[["Diam_ven_esq_sist_i"]][rownasist] <- NA
+
+ggplot(dfpreeco, aes(x = Diam_ven_esq_i, y = Diam_ven_esq_sist_i)) +
+  geom_point() +
+  geom_text(label = rownames(dfpreeco)) +
+  stat_smooth(method = lm) 
+```
+
+### Analysis of Interventricular Septum and Posterior Wall Thickness
+
+We repeat the same procedure for the thickness of the interventricular septum and the posterior wall.
+
+```{r}
+df.m <- melt(dfpreeco %>% dplyr::select(Gruix_enva,Gruix_paret, Gruix_enva_i, Gruix_paret_i))
+ggplot(data = df.m, aes(y=value)) + 
+         geom_boxplot() + facet_wrap(~variable,ncol = 4)
+```
+
+```{r}
+dfpreeco[which(dfpreeco$Gruix_enva<2),]<- NA
+dfpreeco[which(dfpreeco$Gruix_paret<2),]<- NA
+
+rowenva <- IQRrow(3, dfpreeco, "Gruix_enva")
+rowparet <- IQRrow(2.5, dfpreeco, "Gruix_paret")
+
+ggplot(dfpreeco, aes(x = Gruix_enva, y = Gruix_paret)) +
+  geom_point() +
+  geom_text(label = rownames(dfpreeco)) +
+  stat_smooth(method = lm) +
+  geom_point(data = dfpreeco[rowenva, ], aes(color = "outliers enva"), size = 3) +
+  geom_point(data = dfpreeco[rowparet, ], aes(color = "outliers paret"), size = 3) +
+  scale_color_manual(values = c("outliers enva" = "red", "outliers paret" = "yellow"))
+
+dfpreeco[["Gruix_enva"]][rowenva] <- NA
+dfpreeco[["Gruix_paret"]][rowparet] <- NA
+
+ggplot(dfpreeco, aes(x = dfpreeco$Gruix_enva, y = dfpreeco$Gruix_paret)) +
+  geom_point() +
+  geom_text(label=rownames(dfpreeco))+
+  stat_smooth(method=lm)
+```
+```{r}
+ggplot(dfpreeco, aes(x = dfpreeco$Gruix_enva_i, y = dfpreeco$Gruix_paret_i)) +
+  geom_point() +
+  geom_text(label=rownames(dfpreeco))+
+  stat_smooth(method=lm)
+
+rowenva <- IQRrow(4.5, dfpreeco, "Gruix_enva_i")
+rowparet <- IQRrow(3, dfpreeco, "Gruix_paret_i")
+
+ggplot(dfpreeco, aes(x = Gruix_enva_i, y = Gruix_paret_i)) +
+  geom_point() +
+  geom_text(label = rownames(dfpreeco)) +
+  stat_smooth(method = lm) +
+  geom_point(data = dfpreeco[rowenva, ], aes(color = "outliers enva"), size = 3) +
+  geom_point(data = dfpreeco[rowparet, ], aes(color = "outliers paret"), size = 3) +
+  scale_color_manual(values = c("outliers enva" = "red", "outliers paret" = "yellow"))
+
+dfpreeco[["Gruix_enva_i"]][rowenva] <- NA
+dfpreeco[["Gruix_paret_i"]][rowparet] <- NA
+```
+
+### Analysis of Aorta and Left Atrium
+
+```{r}
+df.m <- melt(dfpreeco %>% dplyr::select(Auricula_esq,Diam_aorta, Auricula_esq_i, Diam_aorta_i))
+ggplot(data = df.m, aes(y=value)) + 
+         geom_boxplot() + facet_wrap(~variable,ncol = 4)
+```
+
+```{r}
+rowauricula <- IQRrow(2.5, dfpreeco, "Auricula_esq")
+rowaorta <- IQRrow(2.3, dfpreeco, "Diam_aorta")
+
+ggplot(dfpreeco, aes(x = Auricula_esq, y = Diam_aorta)) +
+  geom_point() +
+  geom_text(label = rownames(dfpreeco)) +
+  stat_smooth(method = lm) +
+  geom_point(data = dfpreeco[rowauricula, ], aes(color = "outliers auricula"), size = 3) +
+  geom_point(data = dfpreeco[rowaorta, ], aes(color = "outliers aorta"), size = 3) +
+  scale_color_manual(values = c("outliers auricula" = "red", "outliers aorta" = "yellow"))
+
+dfpreeco[["Auricula_esq"]][rowauricula] <- NA
+dfpreeco[["Diam_aorta"]][rowaorta] <- NA
+
+ggplot(dfpreeco, aes(x = dfpreeco$Auricula_esq, y = dfpreeco$Diam_aorta)) +
+  geom_point() +
+  geom_text(label=rownames(dfpreeco))+
+  stat_smooth(method=lm)
+```
+
+```{r}
+dfpreeco[["Diam_aorta_i"]][which(dfpreeco$Diam_aorta_i<7)] <- NA
+dfpreeco[["Auricula_esq_i"]][which(dfpreeco$Auricula_esq_i<5)] <- NA
+
+rowauricula <- IQRrow(4, dfpreeco, "Auricula_esq_i")
+rowaorta <- IQRrow(6, dfpreeco, "Diam_aorta_i")
+
+ggplot(dfpreeco, aes(x = Auricula_esq_i, y = Diam_aorta_i)) +
+  geom_point() +
+  geom_text(label = rownames(dfpreeco)) +
+  stat_smooth(method = lm) +
+  geom_point(data = dfpreeco[rowauricula, ], aes(color = "outliers auricula"), size = 3) +
+  geom_point(data = dfpreeco[rowaorta, ], aes(color = "outliers aorta"), size = 3) +
+  scale_color_manual(values = c("outliers auricula" = "red", "outliers aorta" = "yellow"))
+
+dfpreeco[["Auricula_esq_i"]][rowauricula] <- NA
+dfpreeco[["Diam_aorta_i"]][rowaorta] <- NA
+
+ggplot(dfpreeco, aes(x = dfpreeco$Auricula_esq_i, y = dfpreeco$Diam_aorta_i)) +
+  geom_point() +
+  geom_text(label=rownames(dfpreeco))+
+  stat_smooth(method=lm)
+```
+
+## Visualization of Data after Outlier Treatment
+
+After treating the outliers, we visualize the density plots and boxplots of the variables to assess the distribution and variability of the data.
+
+```{r,fig.width=3.5, fig.height=4 }
+
+variableseco <- c("Pes", "Diam_aorta")
+densityplotecocardio2 <- dfpreeco %>%
+  dplyr::select(variableseco) %>% 
+  keep(is.numeric) %>%                     
+  gather() %>%                            
+  ggplot(aes(value)) +                     
+    facet_wrap(~ key, scales = "free", ncol = 4) +   
+    geom_density()   +
+  theme(axis.text.x = element_text(angle = 40)) 
+
+boxplotecocardio2 <-dfpreeco %>%
+  dplyr::select(variableseco) %>% 
+  keep(is.numeric) %>%                     
+  keep(is.numeric) %>%                     
+  gather() %>%                            
+  ggplot(aes(y=value)) +                     
+    facet_wrap(~ key, scales = "free", ncol = 4) +   
+    geom_boxplot()   +
+  labs(title = "Boxplot ecocardiogrames")+
+  theme(axis.text.x = element_text(angle = 40)) 
+
+densityplotecocardio2
+boxplotecocardio2
+
+variablesdensi <- c("TotalCMO_g", "TotalMagra_g")
+
+densityplotdensi2 <- dfpredensi %>%
+  dplyr::select(variablesdensi) %>% 
+  keep(is.numeric) %>%                     
+  gather() %>%                            
+  ggplot(aes(value)) +                     
+    facet_wrap(~ key, scales = "free", ncol = 4) +   
+    geom_density()   +
+  theme(axis.text.x = element_text(angle = 40)) 
+
+boxplotdensi2 <-dfpredensi %>%
+  dplyr::select(variablesdensi) %>% 
+  keep(is.numeric) %>%                     
+  keep(is.numeric) %>%                     
+  gather() %>%                            
+  ggplot(aes(y=value)) +                     
+    facet_wrap(~ key, scales = "free", ncol = 4) +   
+    geom_boxplot()   +
+  labs(title = "Boxplot densitometries")+
+  theme(axis.text.x = element_text(angle = 40)) 
+
+densityplotdensi2
+boxplotdensi2
+
+```
+
+
+```{r, include= FALSE}
+save(dfpredensi, file = "densitometriapre2.Rdata")
+save(dfpreeco, file = "ecocardiogramapre2.Rdata")
+objetos <- Filter(function(x) x != "dfpreeco" & x != "dfpredensi", ls())
+rm(list = objetos)
+```

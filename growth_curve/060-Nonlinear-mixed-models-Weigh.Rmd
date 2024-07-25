@@ -1,0 +1,710 @@
+---
+title: '6.0 Nonlinear Mixed Models for the Variable Weight (''Pes'')'
+author: 
+  - name: "Júlia Cano Raluy"
+    affiliation: "Mathematics student at Autonomous University of Barcelona (UAB)"
+  - name: "Juan R González"
+    affiliation: 
+      - "Bioinformatics Research Group in Epidemiology (BRGE), Barcelona Institute for Global Health (ISGlobal)"
+      - "Department of Mathematics, Autonomous University of Barcelona (UAB)"
+    email: juanr.gonzalez@isglobal.org
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(comment="", warning=FALSE, message=FALSE, cache=TRUE, fig.pos = "H", out.extra = "")
+
+packages <- c("tidyverse", "summarytools", "caret", "reshape2", "ggplot2", "recipes", "factoextra", "magick", "lubridate", "cowplot", "zoo", "gtools", "mice", "VIM", "lattice", "MVN", "mvoutlier", "gridExtra", "lme4", "sjPlot", "MASS", "data.table", "nlme", "tibble" ,"growthmodels")
+
+install_and_load <- function(package) {
+  if (!require(package, character.only = TRUE)) {
+    install.packages(package, dependencies = TRUE)
+    library(package, character.only = TRUE)
+  }
+}
+
+invisible(lapply(packages, install_and_load))
+
+load("densitometriapre4.Rdata")
+load("ecocardiogramapre4.Rdata")
+```
+
+##  Contents
+
+1. [Logistic Model](#logistic-model)
+      1. [Initial Values](#initial-values)
+      2. [Convergence Issues and Solution](#convergence-issues-and-solution)
+      3. [Fitting the Logistic Model](#fitting-the-logistic-model)
+      4. [Comparison of Metrics](#comparison-of-metrics)
+      5. [Model Diagnostics](#model-diagnostics)
+2. [Gompertz Models](#gompertz-models)
+   1. [Initial Values](#initial-values)
+   2. [Fitting the Gompertz Model](#fitting-the-gompertz-model)
+   3. [Model Diagnostics](#model-diagnostics)
+3. [Linear Models](#linear-models)
+4. [Model Comparison](#model-comparison)
+5.  [Final Comparison of Logistic and Gompertz Models](#final-comparison-of-logistic-and-gompertz-models)
+6. [Graphs and Visualization of Results](#graphs-and-visualization-of-results)
+
+
+# Logistic Model
+
+## Initial Values
+
+The initial values for the logistic model are calculated using the maximum value of the weight (Pes) and fitting a linear model on the logit-transformed weight.
+
+```{r}
+  beta0 <- max(dfpreeco$Pes) + 0.1 * max(dfpreeco$Pes)
+  lmbeta<- lm(logit(Pes/beta0) ~ Edat, dfpreeco)
+  start_values_beta <-c(beta0= beta0 , 
+                        beta1=lmbeta$coefficients[[1]],
+                        beta2=lmbeta$coefficients[[2]])
+  ModellogFunc <- function(x, b1, b2, b3) { b1 / (1 + exp(-(b2 + b3 * x))) }
+  
+```
+Next, we fit the logistic model to the data using the initial values.
+```{r }
+  mod.log<- nls(Pes ~ ModellogFunc(Edat, beta0, beta1, beta2),
+            start = start_values_beta,
+            data= dfpreeco, trace=FALSE)
+
+  plot(Pes~ Edat, dfpreeco, cex=0.3, pch=16)
+  with(dfpreeco, lines(seq(10, 40, by=5),
+       predict(mod.log, data.frame(Edat=seq(10,40, by=5))), lwd=2, col="red"))
+      abline(h=coef(mod.log)[1], lty=2, col="blue")
+      abline(h=.5*coef(mod.log)[1], lty=2, col="blue")
+      abline(v=-coef(mod.log)[2]/coef(mod.log)[3], lty=2, col="blue")
+      
+```
+
+
+```{r}
+start_values <- c(Asym = coef(mod.log)[[1]], 
+                        xmid = -coef(mod.log)[[2]] / coef(mod.log)[[3]], 
+                        scal = 1/coef(mod.log)[[3]])
+start_values
+```
+
+## Convergence Issues and Solution
+
+We define the model function and attempt to fit the nonlinear mixed model. However, convergence issues may arise, so we propose a solution.
+```{r}
+ModelFunc <- function(x,Asym ,xmid, scal){(Asym/(1+ exp((xmid-x)/scal)))} 
+formula <- Pes ~  ModelFunc(Edat,Asym ,xmid, scal)
+#modlogmixte <- nlme(Pes ~  ModelFunc(Edat,Asym ,xmid, scal),
+#                    data = dfpreeco,
+#                    fixed = Asym + xmid + scal ~ Seccio,
+#                    random = list(Id = pdDiag(Asym + xmid + scal ~ 1)),
+#                    start = as.list(c(start_values["Asym"], 
+#                                      rep(0,length(unique(dfpreeco$Seccio)) - 1),
+#                                      start_values["xmid"],
+#                                      rep(0,length(unique(dfpreeco$Seccio)) - 1),
+#                                      start_values["scal"]),
+#                                      rep(0,length(unique(dfpreeco$Seccio)) - 1)),
+#                    method = "ML",
+#                    control = nlmeControl(maxIter = 100000, msMaxIter = 100),
+#                    correlation = corcAR1(form = ~ 1 | Id))
+
+
+```
+
+We can initialize the fixed effects more precisely with the drm function, but convergence issues persist.
+
+```{r}
+library(drc)
+mod.drm <- drm(Pes ~ Edat, fct = L.3(), data = dfpreeco,
+                curveid = Seccio,
+                pmodels = list(~ 1, ~ Seccio, ~ 1),
+               )
+
+coef(mod.drm)
+#L.3=d/(1+ exp((-e+x)b))
+#Asym/(1+ exp((xmid-x)/scal))
+#Asym (d)
+#xmid (e): 
+#scal (-1/b)
+
+#ModelFunc2 <- function(x,b ,d, e){(d/(1+ exp((e-x)*b)))} 
+#formula2 <- Pes ~  ModelFunc2(Edat,d ,b, e)
+#modlogmixte <- nlme(formula2, dfpreeco, 
+#                  fixed = d ~ Seccio,
+#                  random = b + d + e ~ 1 | Id,
+#                  start = as.numeric(coef(mod.drm)),
+#                  method = "ML",
+#                  control = nlmeControl(maxIter = 100000, msMaxIter = 100, tolerance = 1e-6),
+#                  correlation=corAR1(form = ~ 1 | Id))
+```
+
+Data reduction and two-step method:
+We simplify the method to ensure convergence by reducing the number of data points, selecting individuals with more than three observations. We first estimate random effects and then update the model to include fixed effects.
+
+```{r}
+df <- dfpreeco %>%
+  group_by(Id) %>%
+  dplyr::summarise(n = n()) %>%
+  filter(n > 3) %>%
+  inner_join(dfpreeco, by = "Id") %>%
+  dplyr::select(-n) %>% 
+  dplyr::mutate(Seccio= as.factor(Seccio)) %>% 
+  filter(Edat < 40)
+
+# Seccio is the value closest to the average so we put it first to act as the intercept
+
+df$Seccio <- relevel(df$Seccio, ref = "SALA")
+levels(df$Seccio)
+
+# Adjust random effects for Weight by Id
+dfG <- groupedData(Pes ~ Edat | Id, data = df)
+```
+
+## Fitting the Logistic Model
+
+We fit the logistic model without random effects for comparison.
+```{r}
+mod0.pes <- nls(Pes ~ SSlogis(Edat, Asym, xmid, scal), 
+                 data = df,
+                 start = start_values,
+                 control = nlmeControl(maxIter = 100000, msMaxIter = 100))
+mod0.pes
+```
+
+We then fit the logistic model with random effects.
+```{r}
+fitL <- nlsList(Pes ~ SSlogis(Edat, Asym, xmid, scal), data = dfG, start = start_values, control = nlmeControl(maxIter = 100000, msMaxIter = 100))
+
+nlme.randomasym<- nlme(fitL, random = Asym ~ 1, 
+                     control = nlmeControl(maxIter = 100000, msMaxIter = 100))
+    head(ranef(nlme.randomasym))
+    head(fixef(nlme.randomasym))
+
+nlme.randomCAR1asym<- nlme(fitL, random = Asym ~ 1, 
+                     control = nlmeControl(maxIter = 100000, msMaxIter = 100),
+                     correlation=corCAR1(form = ~ 1 | Id))
+nlme.randomCAR1scal<- nlme(fitL, random = scal ~ 1, 
+                     control = nlmeControl(maxIter = 100000, msMaxIter = 100),
+                     correlation=corCAR1(form = ~ 1 | Id))
+
+
+# Adjust the fixed effects on Asym by extracting the calculated random effects and updating the model 
+
+fx1 <- fixef(nlme.randomasym)
+fx1
+mod1.pes <- update(nlme.randomasym, fixed = list(Asym ~ Seccio, xmid + scal ~ 1),
+                           start = as.numeric(c(fx1["Asym"], 
+                                  rep(0, length(unique(df$Seccio))-1),
+                                  fx1["xmid"],
+                                  fx1["scal"])))
+summary(mod1.pes)
+
+random_effects <- as.data.frame(ranef(mod1.pes)) %>%
+  mutate(Id = rownames(ranef(mod1.pes)))
+
+head(as_tibble(random_effects[c("Id", "Asym.(Intercept)")]), row.names = FALSE)
+df[df$Id == 8791638, ] %>% dplyr::select(c(Seccio, Id, Pes,Edat))
+cov(ranef(mod1.pes))
+ranef(mod1.pes)
+fixef(mod1.pes)
+
+VarCorr(mod1.pes)
+random_effects <- ranef(mod1.pes)
+```
+
+We also update the model with different random effects structures.
+```{r}
+fx2 <- fixef(nlme.randomCAR1asym)
+mod2.pes <- update(nlme.randomCAR1asym, fixed = list(Asym ~ Seccio, xmid + scal ~ 1),
+                           start = as.numeric(c(fx2["Asym"], 
+                                  rep(0, length(unique(df$Seccio))-1),
+                                  fx2["xmid"],
+                                  fx2["scal"])))
+mod2.pes
+
+fx3 <- fixef(nlme.randomCAR1scal)
+mod3.pes <- update(nlme.randomCAR1scal, fixed = list(Asym ~ Seccio, xmid + scal ~ 1),
+                           start = as.numeric(c(fx3["Asym"], 
+                                  rep(0, length(unique(df$Seccio))-1),
+                                  fx3["xmid"],
+                                  fx3["scal"])))
+mod3.pes
+```
+
+We fit the logistic model without random effects for comparison.
+```{r}
+modlogfix <- nlme(Pes ~ SSlogis(Edat, Asym, xmid, scal), df, 
+                   fixed = Asym + xmid + scal ~ Seccio, 
+                   list(Seccio = pdDiag(Asym + xmid + scal ~ 1)),
+                   start = as.numeric(c(start_values["Asym"],
+                             rep(0, length(unique(df$Seccio))-1),
+                             start_values["xmid"],
+                             rep(0, length(unique(df$Seccio))-1),
+                             start_values["scal"],
+                             rep(0, length(unique(df$Seccio))-1))),
+                   method = "ML",
+                   control = nlmeControl(maxIter = 100000, msMaxIter = 100))
+summary(modlogfix)
+anova(modlogfix)
+AIC(modlogfix)
+plot(modlogfix)
+```
+ 
+
+## Comparison of Metrics 
+
+We compare the models using information criteria such as AIC and BIC or the likelihood ratio test (LRT) if the models are nested.
+
+```{r}
+anova(mod1.pes)
+```
+
+In the context of mixed models, the null hypothesis states that the parameters Asym, xmid, and scal (intercept) have no significant effect, while the alternative hypothesis (H1) states that they do. For the parameter Asym.Seccio (fixed effects), the null hypothesis suggests no significant differences in Asym among different sports sections. A p-value < 0.0001 indicates that the parameters Asym, xmid, and scal have significant effects and that Asym shows significant differences between the various sections.
+
+The F-values support these results, showing high variability explained by the intercept of Asym compared to within-group variability.
+
+```{r}
+anova(mod2.pes)
+anova(mod3.pes)
+```
+
+```{r}
+anova(mod1.pes, mod2.pes, mod3.pes)
+```
+
+When the L.Ratio is less than 1, it indicates that Model 2 has a higher likelihood than Model 1 and therefore might fit the data better. However, in this case, the p-value of 0.883 suggests that there is not enough evidence to conclude that one model is significantly better than the other. Therefore, we cannot assert that one model is preferable over the other based solely on the likelihood ratio analysis.
+
+Lower AIC and BIC values, along with higher logLik, indicate better model fit. In this analysis, all models show similar results in terms of AIC, BIC, and logLik.
+
+```{r}
+AIC(mod0.pes)
+BIC(mod0.pes)
+```
+
+## Model Diagnostics
+
+We use diagnostic plots to verify model assumptions (residual normality, homogeneity of variance, etc.)
+
+We remember that we are interested in the following criteria for a well-fitted regression: (1) symmetric distribution of the residuals, (2) relatively small residuals, close to zero, and (3) absence of obvious patterns
+
+```{r}
+# 1. Normality of residuals
+qqnorm(residuals(mod0.pes))
+qqline(residuals(mod0.pes), col = "red")
+qqnorm(residuals(mod1.pes))
+qqline(residuals(mod1.pes), col = "red")
+qqnorm(residuals(mod2.pes))
+qqline(residuals(mod2.pes), col = "red")
+qqnorm(residuals(mod3.pes))
+qqline(residuals(mod3.pes), col = "red")
+
+# 2. Mean zero and 3. Independence of errors
+# 4. Constant variance (homoscedasticity)
+plot(mod0.pes)#N
+plot(mod1.pes)#Y
+plot(mod2.pes)#Y
+plot(mod3.pes)#Y
+```
+
+## Comparison of Logistic Models
+
+We compare the logistic models using metrics such as AIC and BIC.
+
+```{r}
+mod.list <- list(
+  mod0.pes = mod0.pes,
+  mod1.pes = mod1.pes,
+  mod2.pes = mod2.pes,
+  mod3.pes = mod3.pes
+)
+
+get_metrics <- function(model) {
+  metrics <- data.frame(
+    `-2LogV` = -2*logLik(model),
+    AIC = AIC(model), 
+    BIC = BIC(model)
+  )
+  return(metrics)
+}
+
+comparacio <- imap_dfr(mod.list, ~ {
+  metrics <- get_metrics(.x)
+  data.frame(Model = .y, metrics)
+})
+comparacio <- comparacio %>% dplyr::rename(`-2LogV`= `X.2LogV`)
+comparacio
+
+comparacio %>%
+gather(x, y, `-2LogV`:BIC) %>%
+ggplot(aes(x = x, y = y, color = Model)) +
+geom_jitter(width = 0.2, alpha = 0.8, size = 4) +
+labs(title = "Comparació de mètriques",
+     x = "Mètriques",
+     y = "Valor")
+```
+
+```{r}
+logist <- function(Edat, Asym, xmid, scal) {
+  Asym / (1 + exp((xmid - Edat) / scal))
+}
+
+# Coefficients for each Section
+coef <- fixef(mod1.pes)
+
+# Generate data for predictions for each Section except SALA which will be used as the intercept
+newdat <- expand.grid(Seccio = unique(df$Seccio[df$Seccio != "SALA"]), 
+                       Edat = seq(min(df$Edat), max(df$Edat), length.out = 100))
+newdat <- within(newdat, {
+  Predicted_Pes <- logist(Edat, 
+                          Asym = coef["Asym.(Intercept)"] + coef[paste0("Asym.Seccio", Seccio)],
+                          xmid = coef["xmid"],
+                          scal = coef["scal"]
+  )
+})
+
+# Manually add the line for SALA with only the intercept as Asym
+newdat <- rbind(newdat, data.frame(Seccio = "SALA", 
+                                   Edat = seq(min(df$Edat), max(df$Edat), length.out = 100),
+                                   Predicted_Pes = logist(seq(min(df$Edat), max(df$Edat), length.out = 100),
+                                                           Asym = coef["Asym.(Intercept)"],
+                                                           xmid = coef["xmid"],
+                                                           scal = coef["scal"]
+  )
+))
+
+# Create the base plot with points and lines for Id
+p <- ggplot(df, aes(x = Edat, y = Pes, colour = Seccio)) +
+  geom_point(size = 0.8, alpha = 0.4) +  
+  geom_line(aes(y = predict(mod1.pes), group = Id), alpha = 0.3) + 
+  scale_size_manual(name = "Predictions", values = c("Id" = 0.2)) +
+  theme_bw(base_size = 22)
+
+# Add the curves for each Section
+g <- p + 
+  geom_line(data = newdat, aes(x = Edat, y = Predicted_Pes, group = Seccio), size = 1, alpha = 0.7) + 
+  scale_size_manual(name = "Predictions", values = c("Id" = 0.5, "Population" = 2))
+
+# Show the plot
+print(g)
+```
+
+# Gompertz Models
+
+## Initial Values
+
+We calculate initial values for the Gompertz model using the maximum weight value and fitting a linear model on the log-transformed weight.
+
+```{r, fig.width=6, fig.height=6 }
+beta0 <- max(dfpreeco$Pes) + 0.1 * max(dfpreeco$Pes)
+lmbeta<-lm(log(log(beta0/Pes)) ~ Edat, data = dfpreeco)
+
+start_values_beta <-c(beta0= beta0 , 
+                        beta1= exp(lmbeta$coefficients[[1]]),
+                        beta2=-lmbeta$coefficients[[2]])
+
+mod.log<- nls(Pes ~ growthmodels::gompertz(Edat, beta0, beta1, beta2),
+            start = start_values_beta,
+            data= dfpreeco, trace=FALSE,control = nls.control(maxiter = 100))
+
+start_values_beta <-c(  beta0=  coef(mod.log)[[1]] , 
+                        beta1= coef(mod.log)[[2]],
+                        beta2= coef(mod.log)[[3]])
+
+
+start_values_beta
+```
+
+## Fitting the Gompertz Models
+We fit the Gompertz model to the data using the initial values.
+
+```{r}
+fitL <- nlsList(Pes ~ growthmodels::gompertz(Edat, beta0, beta1, beta2), data = dfG, start = start_values_beta, control = nlmeControl(maxIter = 100000, msMaxIter = 100))
+
+mod0.pes.g <- nls(Pes ~ growthmodels::gompertz(Edat, beta0, beta1, beta2), 
+                 data = df,
+                 start = start_values_beta,
+                 control = nlmeControl(maxIter = 100000, msMaxIter = 100))
+mod0.pes.g
+
+nlme.randomb0g<- nlme(fitL, random = beta0 ~ 1, 
+                     control = nlmeControl(maxIter = 100000, msMaxIter = 100),
+                     method = "ML")
+
+
+fx0 <- fixef(nlme.randomb0g)
+mod1.pes.g <- update(nlme.randomb0g, fixed = list(beta0 ~ Seccio, beta1 + beta2 ~ 1),
+                           start = as.numeric(c(fx0["beta0"], 
+                                  rep(0, length(unique(df$Seccio))-1),
+                                  fx0["beta1"],
+                                  fx0["beta2"])))
+mod1.pes.g
+
+
+```
+
+Without random effects:
+```{r}
+df1 <- dfpreeco %>%
+  group_by(Id) %>%
+  dplyr::summarise(n = n()) %>%
+  filter(n > 1) %>%
+  inner_join(dfpreeco, by = "Id") %>%
+  dplyr::select(-n) %>% 
+  dplyr::mutate(Seccio= as.factor(Seccio)) %>% 
+  filter(Edat < 40)
+
+dfG <- groupedData(Pes ~ Edat | Seccio, data = df1)
+
+fitLg <- nlsList(Pes ~ growthmodels::gompertz(Edat, beta0, beta1, beta2), 
+                 data = dfG, 
+                 start = start_values_beta, 
+                 control = nlmeControl(maxIter = 100000, msMaxIter = 100))
+fitLg
+
+summary(fitLg[[1]])$sigma 
+
+# Function to predict values and generate confidence intervals
+predict_with_confidence <- function(model, newdata, level = 0.95, n_bootstrap = 1000) {
+  # Perform bootstrap predictions
+  preds <- replicate(n_bootstrap, {
+    newdata_noisy <- newdata
+    newdata_noisy$Edat <- newdata$Edat + rnorm(nrow(newdata), 0, sd(newdata$Edat) / 10)
+    predict(model, newdata = newdata_noisy)
+  })
+  pred_mean <- rowMeans(preds)
+  pred_ci <- apply(preds, 1, function(x) quantile(x, probs = c((1 - level) / 2, 1 - (1 - level) / 2)))
+  return(list(mean = pred_mean, lower = pred_ci[1,], upper = pred_ci[2,]))
+}
+
+# Generate data for predictions by section
+seccions <- levels(df1$Seccio)
+newdat <- expand.grid(Edat = seq(min(dfG$Edat), max(dfG$Edat), length.out = 100), Seccio = seccions)
+
+# Predict values for each section using the fitted model (fitLg)
+newdat <- newdat %>%
+  group_by(Seccio) %>%
+  group_modify(~ {
+    preds <- predict_with_confidence(fitLg[[.y$Seccio[1]]], newdata = .x)
+    mutate(.x, Predicted_Pes = preds$mean, Lower_CI = preds$lower, Upper_CI = preds$upper)
+  })
+
+# Create the base plot with points and lines by Id
+p <- ggplot(df1, aes(x = Edat, y = Pes, colour = Seccio)) +
+  geom_point(size = 0.5, alpha = 0.3) +  
+  theme_bw(base_size = 22) +
+  labs(color = "Section")
+
+# Add the prediction curves and their confidence intervals for each section
+g <- p + 
+  geom_line(data = newdat, aes(x = Edat, y = Predicted_Pes, group = Seccio), size = 1, alpha = 1) +
+  geom_ribbon(data = newdat, aes(x = Edat, ymin = Lower_CI, ymax = Upper_CI, fill = Seccio), alpha = 0.2, inherit.aes = FALSE)
+
+# Show the plot
+print(g)
+```
+
+## Model Diagnostics
+
+We use diagnostic plots to verify model assumptions (residual normality, homogeneity of variance, etc.) for the fitted  models. Specifically, we use qqnorm to check for normality of residuals and a plot of residuals versus fitted values to check for homogeneity of variance.
+
+```{r}
+qqnorm(residuals(mod2.pes))
+qqline(residuals(mod2.pes), col = "red")
+plot(mod2.pes)
+
+qqnorm(residuals(mod3.pes))
+qqline(residuals(mod3.pes), col = "red")
+plot(mod3.pes)
+
+qqnorm(residuals(mod0.pes.g))
+qqline(residuals(mod0.pes.g), col = "red")
+plot(mod0.pes.g)
+
+qqnorm(residuals(mod1.pes.g))
+qqline(residuals(mod1.pes.g), col = "red")
+plot(mod1.pes.g)
+
+```
+
+
+# Linear Models
+Next, we fit and compare linear models to the data.
+```{r}
+mod.lin <- lm(Pes~Edat, data= df)
+
+plot_model(mod.lin, "pred",  
+          ci.lvl = 0.95, 
+          show.data = TRUE, 
+          terms = "Edat",  
+          title = "Model lineal",
+          jitter= TRUE
+          )
+mod.lin
+
+mod.lin.log <- lm(Pes~log(Edat), data= df)
+plot_model(mod.lin.log, "pred",  
+          ci.lvl = 0.95, 
+          show.data = TRUE, 
+          terms = "Edat",  
+          title = "Model log",
+          jitter= TRUE
+          )
+mod.lin.log
+```
+
+
+# Final Comparison of Logistic and Gompertz Models
+We compare the final set of models using various metrics to evaluate their performance.
+```{r}
+mod.list <- list(
+  modlin= mod.lin,
+  modlinlog=mod.lin.log,
+  mod0 =mod0.pes,
+  mod0g=mod0.pes.g,
+  mod1 = mod1.pes,
+  mod2 = mod2.pes,
+  mod3 = mod3.pes,
+  mod1g = mod1.pes.g
+)
+
+get_metrics <- function(model) {
+  metrics <- data.frame(
+    `-2LogV` = -2*logLik(model),
+    AIC = AIC(model), 
+    BIC = BIC(model)
+  )
+  return(metrics)
+}
+
+comparacio <- imap_dfr(mod.list, ~ {
+  metrics <- get_metrics(.x)
+  data.frame(Model = .y, metrics)
+})
+comparacio <- comparacio %>% dplyr::rename(`-2LogV`= `X.2LogV`)
+comparacio
+
+comparacio %>%
+gather(x, y, `-2LogV`:BIC) %>%
+ggplot(aes(x = x, y = y, color = Model)) +
+geom_jitter(width = 0.5, alpha = 0.8, size = 5) +
+labs(title = "Comparació de mètriques de la variable Pes",
+     x = "Mètriques",
+     y = "Valor")
+
+mod.list <- list(
+  mod1 = mod1.pes,
+  mod2 = mod2.pes,
+  mod3 = mod3.pes,
+  mod1g = mod1.pes.g
+)
+
+get_metrics <- function(model) {
+  metrics <- data.frame(
+    `-2LogV` = -2*logLik(model),
+    AIC = AIC(model), 
+    BIC = BIC(model)
+  )
+  return(metrics)
+}
+
+comparacio <- imap_dfr(mod.list, ~ {
+  metrics <- get_metrics(.x)
+  data.frame(Model = .y, metrics)
+})
+comparacio <- comparacio %>% dplyr::rename(`-2LogV`= `X.2LogV`)
+
+
+comparacio %>%
+gather(x, y, `-2LogV`:BIC) %>%
+ggplot(aes(x = x, y = y, color = Model)) +
+geom_jitter(width = 0.2, alpha = 0.8, size = 5) +
+labs(title = "Comparació de mètriques de la variable Pes",
+     x = "Mètriques",
+     y = "Valor")
+```
+
+# Graphs and Visualization of Results
+
+We visualize the results of the logistic model fit by plotting the predicted and observed values.
+
+For the logistic model 1:
+
+```{r, warning=FALSE, fig.width=8, fig.height=5}
+coef <- fixef(mod1.pes)
+
+# Generate data for predictions for each Section except SALA
+newdat <- expand.grid(Seccio = unique(df$Seccio[df$Seccio != "SALA"]), 
+                       Edat = seq(min(df$Edat), max(df$Edat), length.out = 100))
+
+newdat <- within(newdat, {
+  Predicted_Pes <- SSlogis(Edat, 
+                          Asym = coef["Asym.(Intercept)"] + coef[paste0("Asym.Seccio", Seccio)],
+                          xmid = coef["xmid"],
+                          scal = coef["scal"])})
+
+# Manually add the line for SALA with only the intercept as Asym
+newdat <- rbind(newdat, data.frame(Seccio = "SALA", 
+                                   Edat = seq(min(df$Edat), max(df$Edat), length.out = 100),
+                                   Predicted_Pes = SSlogis(seq(min(df$Edat), max(df$Edat), length.out = 100),
+                                                           Asym = coef["Asym.(Intercept)"],
+                                                           xmid = coef["xmid"],
+                                                           scal = coef["scal"])))
+# Create the base plot with points and lines by Id
+p <- ggplot(df, aes(x = Edat, y = Pes, colour = Seccio)) +
+  geom_point(size = 1, alpha = 1) +  
+  geom_line(aes(y = predict(mod1.pes), group = Id), alpha = 0.3) + 
+  scale_size_manual(name = "Predictions", values = c("Id" = 0.2)) +
+  theme_bw(base_size = 22)
+p <- p + labs(color = "Section")
+# Add the curves for each Section
+g <- p + 
+  geom_line(data = newdat, aes(x = Edat, y = Predicted_Pes, group = Seccio), size = 1, alpha = 0.7) + 
+  scale_size_manual(name = "Predictions", values = c("Id" = 0.5, "Population" = 2))
+
+# Show the plot
+print(g)
+anova(mod1.pes)
+summary(mod1.pes)
+head(ranef(mod1.pes))
+head(fixef(mod1.pes))
+```
+
+For the Gompertz model1:
+```{r}
+coef <- fixef(mod1.pes.g)
+coef
+
+# Generate data for predictions for each Section except SALA
+newdat <- expand.grid(Seccio = unique(df$Seccio[df$Seccio != "SALA"]), 
+                       Edat = seq(min(df$Edat), max(df$Edat), length.out = 100))
+
+newdat <- within(newdat, {
+  Predicted_Pes <- growthmodels::gompertz(Edat, 
+                          alpha = coef["beta0.(Intercept)"] + coef[paste0("beta0.Seccio", Seccio)],
+                          beta = coef["beta1"],
+                          k = coef["beta2"])
+})
+
+# Manually add the line for SALA with only the intercept as Asym
+newdat <- rbind(newdat, data.frame(Seccio = "SALA", 
+                                   Edat = seq(min(df$Edat), max(df$Edat), length.out = 100),
+                                   Predicted_Pes = growthmodels::gompertz(seq(min(df$Edat), max(df$Edat), length.out = 100),
+                                                           alpha = coef["beta0.(Intercept)"],
+                                                           beta = coef["beta1"],
+                                                           k = coef["beta2"])))
+
+# Create the base plot with points and lines by Id
+p <- ggplot(df, aes(x = Edat, y = Pes, colour = Seccio)) +
+  geom_point(size = 0.8, alpha = 0.4) +  
+  geom_line(aes(y = predict(mod1.pes.g), group = Id), alpha = 0.3) + 
+  scale_size_manual(name = "Predictions", values = c("Id" = 0.2)) +
+  theme_bw(base_size = 22)
+
+# Add the curves for each Section
+g <- p + 
+  geom_line(data = newdat, aes(x = Edat, y = Predicted_Pes, group = Seccio), size = 1, alpha = 0.7) + 
+  scale_size_manual(name = "Predictions", values = c("Id" = 0.5, "Population" = 2))
+
+# Show the plot
+print(g)
+anova(mod1.pes.g)
+
+```

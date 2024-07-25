@@ -1,0 +1,461 @@
+---
+title: '6.2 Nonlinear Mixed Models for the Variable bone mineral content(''CMO'')'
+author: 
+  - name: "Júlia Cano Raluy"
+    affiliation: "Mathematics student at Autonomous University of Barcelona (UAB)"
+  - name: "Juan R González"
+    affiliation: 
+      - "Bioinformatics Research Group in Epidemiology (BRGE), Barcelona Institute for Global Health (ISGlobal)"
+      - "Department of Mathematics, Autonomous University of Barcelona (UAB)"
+    email: juanr.gonzalez@isglobal.org
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(comment="", warning=FALSE, message=FALSE, cache=TRUE, fig.pos = "H", out.extra = "")
+
+packages <- c("tidyverse", "caret", "reshape2", "ggplot2", "recipes", "factoextra", "lubridate", "lattice", "lme4", "MASS", "nlme", "tibble", "growthmodels")
+
+install_and_load <- function(package) {
+  if (!require(package, character.only = TRUE)) {
+    install.packages(package, dependencies = TRUE)
+    library(package, character.only = TRUE)
+  }
+}
+
+invisible(lapply(packages, install_and_load))
+
+load("densitometriapre4.Rdata")
+load("ecocardiogramapre4.Rdata")
+```
+
+
+##  Contents
+
+1. [Logistic Model](#logistic-model)
+   1. [Initial Values](#initial-values)
+   2. [Fitting the Logistic Model](#fitting-the-logistic-model)
+2. [Gompertz Models](#gompertz-models)
+   1. [Initial Values](#initial-values)
+   2. [Fitting the Gompertz Model](#fitting-the-gompertz-model)
+3. [Linear Models](#linear-models)
+4. [Model Diagnostics](#model-diagnostics)
+5. [Final Comparison of Metrics Logistic and Gompertz Models](#final-comparison-of-metrics-logistic-and-gompertz-models)
+6. [Graphs and Visualization of Results](#graphs-and-visualization-of-results)
+
+
+```{r}
+df0 <- dfpredensi
+y <- "TotalCMO_g"
+df <- df0 %>%
+  group_by(Id) %>%
+  dplyr::summarise(n = n()) %>%
+  filter(n > 3) %>%
+  inner_join(dfpredensi, by = "Id") %>%
+  dplyr::select(-n)%>% 
+  dplyr::mutate(Seccio= as.factor(Seccio)) %>% 
+  filter(Edat < 40)
+df$Seccio <- relevel(df$Seccio, ref = "FUTBOL SALA")
+```
+
+# Logistic Model
+
+## Initial Values
+
+```{r}
+beta0 <- max(df0[[y]]) + 0.1 * max(df0[[y]])
+
+lmbeta <- lm(logit(df0[[y]] / beta0) ~ Edat, df0)
+start_values_beta <-c(beta0= beta0 , 
+                        beta1=lmbeta$coefficients[[1]],
+                        beta2=lmbeta$coefficients[[2]])
+ModellogFunc <- function(x, b1, b2, b3) { b1 / (1 + exp(-(b2 + b3 * x))) }
+  
+mod.log <- nls(df0[[y]] ~ ModellogFunc(Edat, beta0, beta1, beta2),
+               start = start_values_beta,
+               data = df0, trace = FALSE)
+start_values <- c(Asym = coef(mod.log)[[1]], 
+                        xmid = -coef(mod.log)[[2]] / coef(mod.log)[[3]], 
+                        scal = 1/coef(mod.log)[[3]])
+start_values
+```
+## Fitting the Logistic Model 
+
+```{r}
+ModelFunc <- function(x, Asym, xmid, scal) {
+  Asym / (1 + exp((xmid - x) / scal))
+}
+
+formula <- as.formula(paste(y, "~ ModelFunc(Edat, Asym, xmid, scal)"))
+```
+
+
+```{r, warning=FALSE}
+dfG <- groupedData(as.formula(paste(y, "~ Edat | Id")), data = df)
+
+fitL <- nlsList(as.formula(paste(y, "~ SSlogis(Edat, Asym, xmid, scal)")), data = dfG, start = start_values, control = nlmeControl(maxIter = 100000, msMaxIter = 100))
+nlme.randomasym<- nlme(fitL, random = Asym ~ 1, 
+                     control = nlmeControl(maxIter = 100000, msMaxIter = 100))
+nlme.randomCAR1asym<- nlme(fitL, random = Asym ~ 1, 
+                     control = nlmeControl(maxIter = 100000, msMaxIter = 100),
+                     correlation=corCAR1(form = ~ 1 | Id))
+nlme.randomCAR1xmid<- nlme(fitL, random = xmid ~ 1, 
+                     control = nlmeControl(maxIter = 100000, msMaxIter = 100),
+                     correlation=corCAR1(form = ~ 1 | Id))
+
+fx0 <- fixef(nlme.randomasym)
+fx1 <- fixef(nlme.randomCAR1asym)
+fx2 <- fixef(nlme.randomCAR1xmid)
+```
+
+```{r}
+model0 <- paste("modbase", y, sep = ".")
+mod0 <- nls(as.formula(paste(y, "~ SSlogis(Edat, Asym, xmid, scal)")), 
+                 data = df,
+                 start = start_values,
+                 control = nlmeControl(maxIter = 100000, msMaxIter = 100))
+assign(model0, mod0)
+
+```
+
+```{r}
+
+model1 <- paste("mod1", y, "seccio", sep = ".")
+mod1 <- update(nlme.randomasym, fixed = list(Asym ~ Seccio, xmid + scal ~ 1),
+                           start = as.numeric(c(fx1["Asym"], 
+                                  rep(0, length(unique(df$Seccio))-1),
+                                  fx1["xmid"],
+                                  fx1["scal"])))
+assign(model1, mod1)
+
+
+model2 <- paste("mod2", y, "seccio", sep = ".")
+mod2 <- update(nlme.randomCAR1asym, fixed = list(Asym ~ Seccio, xmid + scal ~ 1),
+                           start = as.numeric(c(fx1["Asym"], 
+                                  rep(0, length(unique(df$Seccio))-1),
+                                  fx1["xmid"],
+                                  fx1["scal"])))
+assign(model2, mod2)
+
+model3 <- paste("mod4", y, "seccio", sep = ".")
+mod3 <- update(nlme.randomCAR1xmid, fixed = list(Asym ~ Seccio, xmid + scal ~ 1),
+                           start = as.numeric(c(fx2["Asym"], 
+                                  rep(0, length(unique(df$Seccio))-1),
+                                  fx2["xmid"],
+                                  fx2["scal"])))
+assign(model3, mod3)
+```
+
+```{r}
+dff <- df0 %>% 
+  dplyr::mutate(Seccio= as.factor(Seccio)) %>% 
+  filter(Edat < 40)
+
+model4 <- nlme(as.formula(paste(y, "~ SSlogis(Edat, Asym, xmid, scal)")), dff, 
+                   fixed = Asym + xmid + scal ~ Seccio, 
+                   list(Seccio = pdDiag(Asym + xmid + scal ~ 1)),
+                   start = as.numeric(c(start_values["Asym"],
+                             rep(0, length(unique(df$Seccio))-1),
+                             start_values["xmid"],
+                             rep(0, length(unique(df$Seccio))-1),
+                             start_values["scal"],
+                             rep(0, length(unique(df$Seccio))-1))),
+                   method = "ML",
+                   control = nlmeControl(maxIter = 100000, msMaxIter = 100))
+model4
+```
+
+
+```{r}
+dfG <- groupedData(as.formula(paste(y, "~ Edat | Seccio")), data = dff)
+
+fitLl <- nlsList(as.formula(paste(y,"~ SSlogis(Edat, Asym, xmid, scal)")), 
+                 data = dfG, 
+                 start = start_values, 
+                 control = nlmeControl(maxIter = 100000, msMaxIter = 100))
+fitLl
+
+```
+
+# Gompertz Models
+
+## Initial Values
+```{r, fig.width=6, fig.height=6 }
+library(growthmodels)
+
+beta0 <- max(df[[y]]) + 0.1 * max(df[[y]])
+lmbeta <- lm(log(log(beta0/df[[y]])) ~ Edat, data = df)
+
+start_values_beta <- list(beta0 = beta0,
+                          beta1 = exp(lmbeta$coefficients[[1]]),
+                          beta2 = -lmbeta$coefficients[[2]])
+
+mod.log<- nls(as.formula(paste(y, " ~ growthmodels::gompertz(Edat, beta0, beta1, beta2)")),
+            start = start_values_beta,
+            data= df, trace=FALSE, control = nls.control(maxiter = 100))
+
+start_values_beta <-c(beta0=  coef(mod.log)[[1]] , 
+                        beta1= coef(mod.log)[[2]],
+                        beta2= coef(mod.log)[[3]])
+
+
+start_values_beta
+```
+
+## Fitting the Gompertz Models
+
+```{r}
+dfG <- groupedData(as.formula(paste(y, "~ Edat | Id")), data = df)
+fitL <- nlsList(as.formula(paste(y, " ~ growthmodels::gompertz(Edat, beta0, beta1, beta2)")), 
+                data = dfG, start = start_values_beta,
+                control = nlmeControl(maxIter = 100000, msMaxIter = 100))
+
+nlme.randomb0g<- nlme(fitL, random = beta0 ~ 1, 
+                     control = nlmeControl(maxIter = 100000, msMaxIter = 100),
+                     method = "ML")
+
+nlme.randomCAR1b2g<- nlme(fitL, random = beta2 ~ 1, 
+                     control = nlmeControl(maxIter = 100000, msMaxIter = 100),
+                     correlation=corCAR1(form = ~ 1 | Id),
+                     method = "ML")
+nlme.randomCAR1b0g<- nlme(fitL, random = beta0 ~ 1, 
+                     control = nlmeControl(maxIter = 100000, msMaxIter = 100),
+                    correlation=corCAR1(form = ~ 1 | Id),
+                     method = "ML")
+
+fx1 <- fixef(nlme.randomb0g)
+fx2 <- fixef(nlme.randomCAR1b2g)
+fx3 <- fixef(nlme.randomCAR1b0g)
+
+```
+
+
+```{r}
+
+model0g <- paste("mod0", y, "g", sep = ".")
+mod0.g <- nls(as.formula(paste(y, " ~ growthmodels::gompertz(Edat, beta0, beta1, beta2)")), 
+                 data = df,
+                 start = start_values_beta,
+                 control = nlmeControl(maxIter = 100000, msMaxIter = 100))
+assign(model0g, mod0.g)
+print(get(model0g))
+
+model1g <- paste("mod1", y, "seccio","g", sep = ".")
+mod1g <- update(nlme.randomb0g, fixed = list(beta0 ~ Seccio, beta1 + beta2 ~ 1),
+                           start = as.numeric(c(fx1["beta0"], 
+                                  rep(0, length(unique(df$Seccio))-1),
+                                  fx1["beta1"],
+                                  fx1["beta2"])))
+
+assign(model1g, mod1g)
+print(get(model1g))
+
+model2g <- paste("mod2", y, "seccio","g", sep = ".")
+mod2g <- update(nlme.randomCAR1b2g, fixed = list(beta0 ~ Seccio, beta1 + beta2 ~ 1),
+                           start = as.numeric(c(fx2["beta0"], 
+                                  rep(0, length(unique(df$Seccio))-1),
+                                  fx2["beta1"],
+                                  fx2["beta2"])))
+assign(model2g, mod2g)
+print(get(model2g))
+
+```
+
+
+```{r}
+df1 <- df0 %>% 
+  dplyr::mutate(Seccio= as.factor(Seccio)) %>% 
+  filter(Edat < 40)
+
+dfG <- groupedData(as.formula(paste(y, "~ Edat | Seccio")), data = df1)
+
+fitLg <- nlsList(as.formula(paste(y, " ~ growthmodels::gompertz(Edat, beta0, beta1, beta2)")), 
+                 data = dfG, 
+                 start = start_values_beta, 
+                 control = nlmeControl(maxIter = 100000, msMaxIter = 100))
+fitLg
+  
+summary(fitLg)
+coef(fitLg)
+plot(fitLg)
+
+```
+
+
+# Linear Models
+
+```{r}
+mod.lin <- lm(TotalCMO_g~Edat, data= df)
+
+plot_model(mod.lin, "pred",  
+          ci.lvl = 0.95, 
+          show.data = TRUE, 
+          terms = "Edat",  
+          title = "Model lineal",
+          jitter= TRUE
+          )
+mod.lin
+mod.lin.log <- lm(TotalCMO_g~log(Edat), data= df)
+plot_model(mod.lin.log, "pred",  
+          ci.lvl = 0.95, 
+          show.data = TRUE, 
+          terms = "Edat",  
+          title = "Model log",
+          jitter= TRUE
+          )
+mod.lin.log
+```
+
+# Model Diagnostics
+```{r}
+qqnorm(residuals(get(model0)))
+qqline(residuals(get(model0)), col = "red")
+qqnorm(residuals(get(model1)))
+qqline(residuals(get(model1)), col = "red")
+qqnorm(residuals(get(model2)))
+qqline(residuals(get(model2)), col = "red")
+qqnorm(residuals(get(model3)))
+qqline(residuals(get(model3)), col = "red")
+qqnorm(residuals(model4))
+qqline(residuals(model4), col = "red")
+
+plot(get(model0))
+plot(get(model1))
+plot(get(model2))
+plot(get(model3))
+plot(model4)
+```
+
+```{r}
+qqnorm(residuals(get(model0g)))
+qqline(residuals(get(model0g)), col = "red")
+qqnorm(residuals(get(model1g)))
+qqline(residuals(get(model1g)), col = "red")
+qqnorm(residuals(get(model2g)))
+qqline(residuals(get(model2g)), col = "red")
+plot(get(model0g))
+plot(get(model1g))
+plot(get(model2g))
+```
+
+# Final Comparison of Metrics Logistic and Gompertz Models
+
+```{r}
+mod.list.combined <- list(
+  lineal=mod.lin,
+  mod0 = get(model0),
+  mod1 = get(model1),
+  mod2=get(model2),
+  mod3=get(model3),
+  mod4=model4,
+  modg0=get(model0g),
+  modg1=get(model1g),
+  modg2=get(model2g)
+  )
+
+get_metrics <- function(model) {
+  metrics <- data.frame(
+    `-2LogV` = -2*logLik(model),
+    AIC = AIC(model), 
+    BIC = BIC(model)
+  )
+  return(metrics)
+}
+
+comparacio <- imap_dfr(mod.list.combined , ~ {
+  metrics <- get_metrics(.x)
+  data.frame(Model = .y, metrics)
+})
+
+comparacio <- comparacio %>% dplyr::rename(`-2LogV`= `X.2LogV`) %>%  arrange(AIC)
+comparacio
+
+comparacio%>%
+gather(x, y, `-2LogV`:BIC) %>%
+ggplot(aes(x = x, y = y, color = Model)) +
+geom_jitter(width = 0.2, alpha = 0.5, size = 2) +
+labs(title = "Comparació de mètriques",
+     x = "Mètriques",
+     y = "Valor")
+```
+
+
+# Graphs and Visualization of Results
+
+```{r, fig.width=7, fig.height=4, warning=FALSE}
+logist <- function(Edat, Asym, xmid, scal) {
+  Asym / (1 + exp((xmid - Edat) / scal))
+}
+
+coef <- fixef(get(model1))
+newdat <- expand.grid(Seccio = unique(df$Seccio[df$Seccio != "FUTBOL SALA"]), 
+                       Edat = seq(min(df$Edat), max(df$Edat), length.out = 100))
+newdat <- within(newdat, {
+  Predicted<- logist(Edat, 
+                          Asym = coef["Asym.(Intercept)"] + coef[paste0("Asym.Seccio", Seccio)],
+                          xmid = coef["xmid"],
+                          scal = coef["scal"])})
+
+newdat <- rbind(newdat, data.frame(Seccio = "FUTBOL SALA", 
+                                   Edat = seq(min(df$Edat), max(df$Edat), length.out = 100),
+                                   Predicted = logist(seq(min(df$Edat), max(df$Edat), length.out = 100),
+                                                           Asym = coef["Asym.(Intercept)"],
+                                                           xmid = coef["xmid"],
+                                                           scal = coef["scal"])))
+newdat$Seccio<- as.factor(newdat$Seccio)
+newdat$Seccio <- relevel(newdat$Seccio, ref = "FUTBOL SALA")
+newdat <- newdat %>% arrange(Seccio)
+newdat
+p <- ggplot(df, aes(x = Edat, y = get(y), colour = Seccio)) +
+  geom_point(size = 0.8, alpha = 0.1) +  
+  geom_line(aes(y = predict(get(model1)), group = Id), alpha = 0.2) + 
+  labs(y = y)+
+  scale_size_manual(name = "Prediccions", values = c("Id" = 0.2)) +
+  theme_bw(base_size = 22)
+
+g <- p + 
+  geom_line(data = newdat, aes(x = Edat, y = Predicted, group = Seccio), size = 1, alpha = 0.7) + 
+  scale_size_manual(name = "Prediccions", values = c("Id" = 0.5, "Població" = 3))
+
+print(g)
+
+
+summary(get(model1))
+anova(get(model1))
+plot(get(model1))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

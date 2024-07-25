@@ -1,0 +1,317 @@
+---
+title: '5 Longitudinal Data Selection and Visualization'
+author: 
+  - name: "Júlia Cano Raluy"
+    affiliation: "Mathematics student at Autonomous University of Barcelona (UAB)"
+  - name: "Juan R González"
+    affiliation: 
+      - "Bioinformatics Research Group in Epidemiology (BRGE), Barcelona Institute for Global Health (ISGlobal)"
+      - "Department of Mathematics, Autonomous University of Barcelona (UAB)"
+    email: juanr.gonzalez@isglobal.org
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(comment="", warning=FALSE, message=FALSE, cache=TRUE, fig.pos = "H", out.extra = "")
+
+packages <- c("tidyverse", "summarytools", "caret", "reshape2", "ggplot2", "recipes", "factoextra", "magick", "lubridate", "cowplot", "zoo", "mice", "VIM", "lattice", "MVN", "mvoutlier", "data.table", "gridExtra", "reshape2", "plyr", "ggpubr")
+
+install_and_load <- function(package) {
+  if (!require(package, character.only = TRUE)) {
+    install.packages(package, dependencies = TRUE)
+    library(package, character.only = TRUE)
+  }
+}
+
+invisible(lapply(packages, install_and_load))
+
+load("densitometriapre3.Rdata")
+load("ecocardiogramapre3.Rdata")
+```
+
+##  Contents
+
+1. [Data Selection](#overview)
+    1. [Filter Individuals with Repeated Measurements](#univariate-descriptive-statistics)
+2. [Visualizing Longitudinal Data](#scatter-plot-matrices)
+   1. [Spaghetti Plots by Sport Section and Gender](#distribution-comparison)
+
+# Data Selection
+
+Using the Age of Individuals as a Temporal Reference
+
+## Filter Individuals with Repeated Measurements
+
+Filter the individuals who have exactly 9 repeated measurements and visualize their weight over age.
+
+```{r}
+dfpreeco9 <- dfpreeco %>%
+  group_by(Id) %>%
+  dplyr::summarise(n = n()) %>% 
+  filter(n==9)
+
+dfpreeco9 <- dfpreeco %>%
+  filter(Id %in% dfpreeco9$Id)
+
+ggplot(dfpreeco9, aes(x = Edat, y = Pes, color= Id)) +
+  geom_point() +
+  stat_smooth(method = "loess", se = FALSE, span = .9) +
+  facet_wrap(~Id)
+```
+
+Summarize the number of individuals with repeated measurements in both echocardiogram and densitometry datasets.
+
+```{r}
+dfpreeco %>%
+  group_by(Id) %>%
+  dplyr::summarise(n = n()) %>% 
+  nrow()
+
+dfpreeco %>%
+  group_by(Id) %>%
+  dplyr::summarise(n = n()) %>% 
+  filter(n>1) %>% 
+  nrow()
+
+dfpredensi %>%
+  group_by(Id) %>%
+  dplyr::summarise(n = n()) %>% 
+  nrow()
+
+dfpredensi %>%
+  group_by(Id) %>%
+  dplyr::summarise(n = n()) %>% 
+  filter(n>1) %>% 
+  nrow()
+```
+
+In the echocardiogram dataframe, out of 3376 individuals, only 999 have undergone the test more than once. Similarly, for the densitometry data, out of 1139 individuals, we have 850 with repeated measurements.
+
+# Visualizing Longitudinal Data
+
+Now we will visualize the data as longitudinal data, focusing on the trajectories of individuals over time, taking the temporal variable "Edat" (Age) as a reference.
+
+```{r, fig.width=6, fig.height=4}
+
+crear_grafico <- function(data, variable) {
+  ggplot(data, aes_string(x = "Edat", y = variable, group = "Id", color = "Seccio")) +
+    geom_point(size = 1.5, alpha = 0.4) +  
+    labs(
+      title = paste( variable, "per edat segons Secció esportiva"),
+      x = "Edat",
+      y = variable,
+      color = "Esport"
+    ) + 
+    theme_minimal()
+}
+
+crear_graficos <- function(data, variables) {
+  map(variables, ~crear_grafico(data, .x))
+}
+
+variables <- c("TotalGreix_g", "TotalCMO_g", "TotalMagra_g", "TotalTeixit_g")
+graficos <- crear_graficos(dfpredensi, variables)
+walk(graficos, print)
+#obs totalGreix_g no té forma corba creixement com les altres, la descartarem per l'estudi 
+
+variables <- c("Pes", "Talla", "Gruix_enva", "Gruix_paret", "Auricula_esq", "Diam_aorta", "Diam_ven_esq_diast", "Diam_ven_esq_sist")
+graficos <- crear_graficos(dfpreeco, variables)
+walk(graficos, print)
+
+
+
+  ggplot(dfpreeco, aes_string(x = "Edat", y = "Diam_aorta", group = "Id", color = "Seccio")) +
+    geom_point(size = 1.5, alpha = 0.4) +  
+    labs(
+      title = "Diàmetre aorta per edat segons secció esportiva",
+      x = "Edat",
+      y = "Diam_aorta",
+      color = "Secció"
+    ) + 
+    theme_minimal()
+
+
+crear_graficos <- function(data, variables) {
+  map(variables, ~crear_grafico(data, .x))
+}
+
+variables <- c("TotalGreix_g", "TotalCMO_g", "TotalMagra_g", "TotalTeixit_g")
+graficos <- crear_graficos(dfpredensi, variables)
+walk(graficos, print)
+#obs totalGreix_g no té forma corba creixement com les altres, la descartarem per l'estudi 
+
+variables <- c("Pes", "Talla", "Gruix_enva", "Gruix_paret", "Auricula_esq", "Diam_aorta", "Diam_ven_esq_diast", "Diam_ven_esq_sist")
+graficos <- crear_graficos(dfpreeco, variables)
+walk(graficos, print)
+```
+
+We will limit the data to individuals aged 10 to 40, due to limited data availability beyond this age. The data will be filtered and arranged to include only unique age records for each individual.
+
+```{r}
+dfpreeco <- dfpreeco %>% arrange(Id, Edat) %>%
+  distinct(Id, Edat, .keep_all = TRUE)%>%
+  filter(Edat <40) %>% 
+  filter(Edat >10)
+
+dfpredensi <- dfpredensi%>% arrange(Id, Edat) %>% 
+  distinct(Id, Edat, .keep_all = TRUE)%>%
+  filter(Edat <40) %>% 
+  filter(Edat >10)
+```
+
+Create and display scatter plot for various variables by sport section.
+```{r}
+library(ggplot2)
+library(purrr)
+
+crear_grafico <- function(data, variable) {
+  ggplot(data, aes_string(x = "Edat", y = variable, group = "Id", color = "Seccio")) +
+    geom_point(size = 1.5, alpha = 0.4) +  
+    labs(
+      title = paste( variable, "per edat segons Secció esportiva"),
+      x = "Edat",
+      y = variable,
+      color = "Esport"
+    ) + 
+    theme_minimal()
+}
+
+crear_graficos <- function(data, variables) {
+  map(variables, ~crear_grafico(data, .x))
+}
+
+variables <- c("TotalCMO_g", "TotalMagra_g", "TotalTeixit_g")
+graficos <- crear_graficos(dfpredensi, variables)
+walk(graficos, print)
+#obs totalGreix_g no té forma corba creixement com les altres, la descartarem per l'estudi 
+
+variables <- c("Pes", "Talla", "Gruix_enva", "Gruix_paret", "Auricula_esq", "Diam_aorta", "Diam_ven_esq_diast", "Diam_ven_esq_sist")
+graficos <- crear_graficos(dfpreeco, variables)
+walk(graficos, print)
+
+```
+Create and display scatter plot for various variables by gender.
+```{r}
+crear_grafic <- function(data, variable) {
+  ggplot(data, aes_string(x = "Edat", y = variable, group = "Id", color = "Sexe")) +
+    geom_point(size = 1.5, alpha = 0.4) +  
+    labs(
+      title = paste( variable, "per edat segons Sexe"),
+      x = "Edat",
+      y = variable,
+      color = "Sexe"
+    ) + 
+    theme_minimal()
+}
+
+crear_grafics <- function(data, variables) {
+  map(variables, ~crear_grafic(data, .x))
+}
+
+variables <- c("TotalCMO_g", "TotalMagra_g", "TotalTeixit_g")
+grafics <- crear_grafics(dfpredensi, variables)
+walk(grafics, print)
+variables <- c("Pes", "Talla", "Gruix_enva", "Gruix_paret", "Auricula_esq", "Diam_aorta", "Diam_ven_esq_diast", "Diam_ven_esq_sist")
+grafics <- crear_grafics(dfpreeco, variables)
+walk(grafics, print)
+```
+We can see the reason for choosing these variables:
+```{r}
+crear_grafico <- function(data, variable) {
+  ggplot(data, aes_string(x = "Edat", y = variable, group = "Id", color = "Seccio")) +
+    geom_point(size = 1.5, alpha = 0.4) +  
+    labs(
+      title = paste( variable, "per edat segons Secció esportiva"),
+      x = "Edat",
+      y = variable,
+      color = "Esport"
+    ) + 
+    theme_minimal()
+}
+
+crear_graficos <- function(data, variables) {
+  map(variables, ~crear_grafico(data, .x))
+}
+
+variables <- c("TotalGreix_g", "TotalTeixit_percentatge", "TotalRegión_percentatge")
+grafics <- crear_graficos(dfpredensi, variables)
+walk(grafics, print)
+
+variables <- c("Pes", "TotalCMO_g", "TotalMagra_g", "TotalTeixit_g")
+grafics <- crear_graficos(dfpredensi, variables)
+walk(grafics, print)
+variables <- c("Pes", "Talla", "Gruix_enva", "Gruix_paret", "Auricula_esq", "Diam_aorta", "Diam_ven_esq_diast", "Diam_ven_esq_sist")
+graficos <- crear_graficos(dfpreeco, variables)
+walk(graficos, print)
+variables <- c("Diam_ven_esq_i", "Diam_ven_esq_sist_i", "Gruix_enva_i", "Gruix_paret_i", "Auricula_esq_i", "Diam_aorta_i")
+grafics <- crear_graficos(dfpreeco, variables)
+walk(grafics, print)
+```
+
+## Spaghetti Plots by Sport Section and Gender
+
+Create and display spaghetti plots for various variables by sport section.
+```{r}
+crear_grafico_linea <- function(data, variable) {
+  ggplot(data, aes_string(x = "Edat", y = variable, group = "Id", color = "Seccio")) +
+    geom_line(alpha = 0.5) +
+    geom_point(size =0.5 , alpha = 0.4) +  
+    labs(
+      title = paste(variable, "per edat segons Secció esportiva"),
+      x = "Edat",
+      y = variable,
+      color = "Esport"
+    ) + 
+    facet_wrap(~Seccio) 
+}
+
+crear_graficos_linea <- function(data, variables) {
+  map(variables, ~crear_grafico_linea(data, .x))
+}
+
+variables_densi <- c("TotalGreix_g", "TotalCMO_g", "TotalMagra_g", "TotalTeixit_g")
+graficos_densi <- crear_graficos_linea(dfpredensi, variables_densi)
+walk(graficos_densi, print)
+
+variables_eco <- c("Pes", "Talla", "Gruix_enva", "Gruix_paret", "Auricula_esq", "Diam_aorta", "Diam_ven_esq_diast", "Diam_ven_esq_sist")
+graficos_eco <- crear_graficos_linea(dfpreeco, variables_eco)
+walk(graficos_eco, print)
+
+```
+
+```{r}
+crear_grafico_linea <- function(data, variable) {
+  ggplot(data, aes_string(x = "Edat", y = variable, group = "Id", color = "Sexe")) +
+    geom_line(alpha = 0.5) +
+    geom_point(size =0.5 , alpha = 0.4) +  
+    labs(
+      title = paste(variable, "per edat segons Sexe"),
+      x = "Edat",
+      y = variable,
+      color = "Sexe"
+    ) + 
+    facet_wrap(~Sexe) 
+}
+
+crear_graficos_linea <- function(data, variables) {
+  map(variables, ~crear_grafico_linea(data, .x))
+}
+
+variables_densi <- c("TotalGreix_g", "TotalCMO_g", "TotalMagra_g", "TotalTeixit_g")
+graficos_densi <- crear_graficos_linea(dfpredensi, variables_densi)
+walk(graficos_densi, print)
+
+variables_eco <- c("Pes", "Talla", "Gruix_enva", "Gruix_paret", "Auricula_esq", "Diam_aorta", "Diam_ven_esq_diast", "Diam_ven_esq_sist")
+graficos_eco <- crear_graficos_linea(dfpreeco, variables_eco)
+walk(graficos_eco, print)
+
+```
+
+```{r, include= FALSE}
+save(dfpreeco, file = "densitometriapre4.Rdata")
+save(dfpredensi, file = "ecocardiogramapre4.Rdata")
+objetos <- Filter(function(x) x != "dfpreeco" & x != "dfpredensi", ls())
+rm(list = objetos)
+```

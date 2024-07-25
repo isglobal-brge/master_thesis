@@ -1,0 +1,674 @@
+---
+title: '4 Descriptive and Analytical Overview of Densitometry and Echocardiography Data'
+author: 
+  - name: "Júlia Cano Raluy"
+    affiliation: "Mathematics student at Autonomous University of Barcelona (UAB)"
+  - name: "Juan R González"
+    affiliation: 
+      - "Bioinformatics Research Group in Epidemiology (BRGE), Barcelona Institute for Global Health (ISGlobal)"
+      - "Department of Mathematics, Autonomous University of Barcelona (UAB)"
+    email: juanr.gonzalez@isglobal.org
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(comment="", warning=FALSE, message=FALSE, cache=TRUE, fig.pos = "H", out.extra = "")
+
+packages <- c("tidyverse", "summarytools", "caret", "reshape2", "ggplot2", "recipes", "factoextra", "magick",  "lubridate", "cowplot", "zoo", "mice", "VIM", "lattice", "MVN", "mvoutlier", "data.table", "gridExtra", "reshape2", "plyr", "ggpubr", "fitdistrplus")
+
+install_and_load <- function(package) {
+  if (!require(package, character.only = TRUE)) {
+    install.packages(package, dependencies = TRUE)
+    library(package, character.only = TRUE)
+  }
+}
+
+invisible(lapply(packages, install_and_load))
+
+load("densitometriapre3.Rdata")
+load("ecocardiogramapre3.Rdata")
+
+```
+
+
+##  Contents
+
+1. [Overview](#overview)
+    1. [Univariate Descriptive Statistics](#univariate-descriptive-statistics)
+    2. [Density Plots and Boxplots](#density-plots-and-boxplots)
+2. [Scatter Plot Matrices](#scatter-plot-matrices)
+3. [Distribution Fitting](#distribution-fitting)
+   1. [Distribution Comparison](#distribution-comparison)
+   2. [Graphical Techniques for Distribution Fitting: Q-Q Plot](#graphical-techniques-for-distribution-fitting-q-q-plot)
+4. [Data Imbalance](#data-imbalance)
+5. [Descriptive Analysis of Variables by Sex, Sport, and Age](#descriptive-analysis-of-variables-by-sex-sport-and-age)
+
+
+
+Visualize the summary of univariate descriptive statistics after treating outliers and missing values.
+
+
+```{r}
+head(descr(dfpreeco,
+  FUN = descr, 
+  stats = "common",
+  transpose = TRUE))
+```
+```{r, warning=FALSE }
+head(descr(dfpredensi,
+  FUN = descr, 
+  stats = "common",
+  transpose = TRUE))
+```
+
+Visualize the density plots and boxplots of the variables:
+Echocardiogram:
+```{r, warning=FALSE, fig.width=6, fig.height=3 }
+variableseco <- c("Pes", "Talla", "Gruix_enva", "Gruix_paret", "Auricula_esq", "Diam_aorta", "Diam_ven_esq_diast", "Diam_ven_esq_sist")
+
+dfpreeco$Grui
+densityplotecocardio2 <- dfpreeco %>%
+  dplyr::select(variableseco) %>% 
+  keep(is.numeric) %>%                     
+  gather() %>%                            
+  ggplot(aes(value)) +                     
+    facet_wrap(~ key, scales = "free", ncol = 4) +   
+    geom_density()   +
+  theme(axis.text.x = element_text(angle = 40)) 
+
+boxplotecocardio2 <- dfpreeco %>%
+  dplyr::select(variableseco) %>% 
+  keep(is.numeric) %>%                     
+  keep(is.numeric) %>%                     
+  gather() %>%                            
+  ggplot(aes(y=value)) +                     
+    facet_wrap(~ key, scales = "free", ncol = 4) +   
+    geom_boxplot()   +
+    theme(axis.text.x = element_text(angle = 40)) +
+    labs(title = "Boxplot ecocardiogrames després del tractament de valors atípics ")
+densityplotecocardio2
+boxplotecocardio2
+
+pp <- lapply(variableseco, function(var) {
+  ggplot(dfpreeco, aes(x = .data[[var]], color = Sexe)) + 
+    geom_histogram(aes(y = ..density..), alpha = 0.5, position = "identity", show.legend = FALSE) +
+    geom_density(alpha = .2, show.legend = FALSE) +
+    theme(axis.text.x = element_text(angle = 40), 
+          axis.title.x = element_text(size = 6),
+          axis.title.y = element_blank())
+})
+
+grid.arrange(grobs = pp, ncol = 4)
+```
+Densitometry:
+
+```{r, warning=FALSE , fig.cap="density plot ecocardiograma", fig.width=6, fig.height=1.5  }
+variablesdensi<- c("TotalGreix_g", "TotalCMO_g", "TotalMagra_g", "TotalTeixit_g")
+data_long <- dfpredensi %>% dplyr::select(starts_with("Total")) %>% dplyr::select(ends_with("_g")) %>%  gather()
+densityplot <- ggplot(data = data_long, aes(x = value)) +
+  facet_wrap(~ key, scales = "free", ncol = 5) +
+  geom_density() +
+  theme(axis.text.x = element_text(angle = 45, size = 7)) +
+  theme(strip.text.x = element_text(hjust = 0.1, size = 6))
+
+df.m <- dfpredensi %>% 
+  dplyr::select(starts_with("Total")) %>% 
+  dplyr::select(ends_with("_g")) %>%  
+  gather() 
+
+boxplot <- ggplot(data = df.m, aes(y = value)) +
+  geom_boxplot(dir = "h") +
+  facet_wrap(~ key, scales = "free", ncol = 4) +
+  theme(strip.text.x = element_text(hjust = 0.1, size = 6), strip.text.y = element_text(hjust = 0.1, size = 6)) +
+  labs(title = "Boxplot densitometries després del tractament de valors atípics")
+print(densityplot)
+print(boxplot)
+
+pp <- lapply( variablesdensi, function(var) {
+  ggplot(dfpredensi, aes(x = .data[[var]], color = Sexe)) + 
+    geom_histogram(aes(y = ..density..), alpha = 0.5, position = "identity", show.legend = FALSE) +
+    geom_density(alpha = .2, show.legend = FALSE) +
+    theme(axis.text.x = element_text(angle = 40), 
+          axis.title.x = element_text(size = 6),
+          axis.title.y = element_blank())
+})
+
+grid.arrange(grobs = pp, ncol = 4)
+```
+
+We can note the difference after treating the values.
+
+# Scatter Plot Matrices
+
+For each dataset, we have p variables, each of which we can represent individually with a box plot or histogram and two-by-two with a scatter plot. Therefore, we will have p(p-1)/2 possible diagrams.
+
+The best way to graph them is in the form of a matrix, the scatter plot matrix, where we will represent the histograms and bivariate relationships.
+In particular, these graphs are important to appreciate if there are nonlinear relationships.
+
+Since we have many variables, we will group them by categories to better visualize the scatter plot matrix for each group.
+```{r, warning=FALSE }
+matriudisp <-function(df){ 
+  xx <- with(df, data.table(df))
+  
+  yy <- melt(xx, id = c("row", "Sexe"), variable.name = "H", value.name = "xval")
+  yy <- data.table(yy, key = "row,Sexe")
+  ww <- yy[, list(V = H, yval = xval), key = "row,Sexe"]
+  zz <- yy[ww, allow.cartesian = TRUE]
+  setkey(zz, H, V, Sexe)
+  zz <- zz[, list(row, Sexe, xval, yval, min.x = min(xval), min.y = min(yval),
+                  range.x = diff(range(xval)), range.y = diff(range(yval))), by = "H,V"]
+  
+  d <- zz[H == V, list(x = density(xval)$x,
+                       y = mean(min.y) + mean(range.y) * density(xval)$y / max(density(xval)$y)),
+           by = "H,V,Sexe"]
+  
+  ggp <- ggplot(zz)
+  ggp <- ggp + geom_point(subset = .(H != V), aes(x = xval, y = yval, color = factor(Sexe)), size = 0.5, alpha = 0.2)
+  ggp <- ggp + geom_line(subset = .(H == V), data = d, aes(x = x, y = y, color = factor(Sexe)))
+  ggp <- ggp + facet_grid(V ~ H, scales = "free")
+  ggp <- ggp + scale_color_discrete(name = "Sexe")
+  ggp <- ggp + labs(x = "", y = "")
+  ggp
+}
+```
+
+```{r, warning=FALSE, fig.width=6, fig.height=6}
+df1 <- dfpreeco %>%
+dplyr::mutate(., row = row_number()) %>% 
+    dplyr::select(c("Pes", "Talla", "Gruix_enva", "Gruix_paret", "row", "Sexe"))
+
+df2 <- dfpreeco %>%
+dplyr::mutate(., row = row_number()) %>% 
+    dplyr::select(c("Auricula_esq", "Diam_aorta", "Diam_ven_esq_diast", "Diam_ven_esq_sist","row", "Sexe"))
+
+matriudisp(df1)+ theme(axis.text.x = element_text(angle = 45, size = 7))
+matriudisp(df2)+ theme(axis.text.x = element_text(angle = 45, size = 7))
+```
+
+Densitometry:`
+
+```{r, warning=FALSE, fig.width5, fig.height=5 }
+df_total <- dfpredensi %>%
+dplyr::mutate(., row = row_number()) %>% 
+    dplyr::select(starts_with(c("Total", "row", "Sexe")))%>% 
+    dplyr::select(ends_with(c("_g", "row", "Sexe")))
+
+matriudisp(df_total)+ theme(axis.text.x = element_text(angle = 45, size = 7))
+```
+
+
+# Distribution Fitting
+
+To study if a random sample comes from a population with a normal distribution, we have three tools listed below.
+
+1. [Histogram and/or density.]
+2. [Quantile-quantile plots (QQplot).]
+3. [Hypothesis tests.]
+
+## Distribution Comparison
+
+Comparing distributions involves finding the parameters that maximize the likelihood that this distribution generates the observed data. For example, the normal distribution has two parameters: mean and variance.
+
+Common metrics are AIC (Akaike Information Criterion) and BIC (Bayesian Information Criterion), which penalize models with more parameters
+
+We will start by comparing various distributions to identify the best one among them. Using the `univariateML` package, the analysis focuses on estimating univariate densities using the maximum likelihood method, which is appropriate for most univariate densities used in practice. This estimation method is usually consistent and efficient. Once we have this, we will use AIC and BIC metrics to determine the best distribution for each variable.
+
+```{R}
+library(univariateML)
+distribucions <- c( univariateML::mlnorm, univariateML::mlexp,  univariateML::mlinvgamma,  univariateML::mlgamma,  univariateML::mlgumbel,  univariateML::mllnorm,  univariateML::mlrayleigh,  univariateML::mlinvgauss,  univariateML::mlweibull,  univariateML::mlinvweibull)
+
+distr<-function(x){
+    comparacio <- lapply(distribucions, function(dist) {
+    ajuste <- dist(x)
+    c(AIC(ajuste), BIC(ajuste)) })
+  
+  comparacio<-as.data.frame(comparacio)%>% t() 
+  rownames(comparacio) <- c("norm", "exp", "invgamma", "gamma", "gumbel", "lnorm", "rayleigh", "invgauss", "weibull", "invweibull") 
+  colnames(comparacio)<-c("AIC","BIC")
+  comparacio<-as.data.frame(comparacio) %>%  dplyr::arrange(AIC)
+  return(comparacio)
+}
+```
+
+For example, for the variable Auricula_esq:
+```{r}
+distr(dfpreeco$Auricula_esq)
+```
+
+According to the comparison of AIC and BIC, the distribution that best fits the data is the normal distribution, followed by the gamma distribution.
+
+If we graphically represent the distributions, we have:
+
+```{r}
+params_gamma <- fitdist(dfpreeco$Auricula_esq, distr = "gamma")$estimate
+params_norm <- fitdist(dfpreeco$Auricula_esq, distr = "norm")$estimate
+params_lognorm <- fitdist(dfpreeco$Auricula_esq, distr = "lnorm")$estimate
+params_weibull <- fitdist(dfpreeco$Auricula_esq, distr = "weibull")$estimate
+
+ggplot(data = dfpreeco) +
+  geom_histogram(aes(x = Auricula_esq, y = after_stat(density)),
+                 bins = 40,
+                 alpha = 0.3, color = "black") +
+  geom_rug(aes(x = Auricula_esq)) +
+  stat_function(fun = function(x) { dnorm(x, mean = params_norm[1], sd = params_norm[2]) },
+                aes(color = "norm"),
+                size = 1) +
+stat_function(fun = function(x) { dgamma(x, shape =mean(dfpreeco$Auricula_esq)^2/var(dfpreeco$Auricula_esq), scale = var(dfpreeco$Auricula_esq)/mean(dfpreeco$Auricula_esq)) },
+                aes(color = "gamma"),
+                size = 1) + 
+  stat_function(fun = function(x) { dlnorm(x, meanlog = params_lognorm[1], sdlog = params_lognorm[2]) },
+                aes(color = "lognorm"),
+                size = 1) +
+  stat_function(fun = function(x) { dweibull(x, shape = params_weibull[1], scale = params_weibull[2]) },
+                aes(color = "weibull"),
+                size = 1) +
+  scale_color_manual(breaks = c("norm", "gamma", "lognorm", "weibull"),
+                     values = c("norm" = "red", "gamma" = "blue", "lognorm" = "green", "weibull" = "orange")) +
+  labs(title = "Distribució Auricula_esq",
+       color = "Distribució") +
+  theme_bw() +
+  theme(legend.position = "bottom")
+```
+
+A normal distribution is fitted to the data using maximum likelihood.
+```{r, warning=FALSE}
+library(fitdistrplus)
+distribucio <- fitdist(dfpreeco$Auricula_esq, distr = "norm")
+summary(distribucio)
+plot(distribucio)
+```
+
+
+We will reproduce this procedure with the rest of the variables. We select the best distribution based on AIC and BIC for each variable
+
+```{r warning=FALSE}
+resultats<-lapply(variableseco, function(var) {distr(dfpreeco[[var]])})
+millorsdisteco<-lapply(resultats, function(df) rownames(df[1,]))
+
+distribucionseco<-data.frame(
+  variable = variableseco,
+  distribution = unlist(millorsdisteco) ,
+  data = "dfpreeco")
+```
+
+```{r, warning=FALSE, include=FALSE}
+
+# The beta distribution is a family of continuous probability distributions defined on the interval (0,1), so we will need to scale our data before checking the distributions.
+dfpredensi$TotalTeixit_g
+if (any(dfpredensi$TotalCMO_g < 0)) {
+  print("Hi ha valors negatius en TotalCMO_g ")}
+if (any(dfpredensi$TotalGreix_g < 0)) {
+  print("Hi ha valors negatius en TotalGreix_g")}
+if (any(dfpredensi$TotalMagra_g < 0)) {
+  print("Hi ha valors negatius en TotalMagra_g")}
+if (any(dfpredensi$TotalTeixit_g < 0)) {
+  print("Hi ha valors negatius en TotalTeixit_g")}
+if (any(dfpredensi$TotalCMO_g > 1)) {
+  print("Hi ha valors majors que 1 en TotalCMO_g ")}
+if (any(dfpredensi$TotalGreix_g > 1)) {
+  print("Hi ha valors majors que 1 en TotalGreix_g")}
+if (any(dfpredensi$TotalMagra_g > 1)) {
+  print("Hi ha valors majors que 1 en TotalMagra_g")}
+if (any(dfpredensi$TotalTeixit_g > 1)) {
+  print("Hi ha valors majors que 1 en TotalTeixit_g")}
+
+
+dfpredensi2 <- dfpredensi[, variablesdensi]
+
+dfpredensi2$TotalCMO_g <- dfpredensi2$TotalCMO_g / max(dfpredensi2$TotalCMO_g)
+dfpredensi2$TotalGreix_g <- dfpredensi2$TotalGreix_g / max(dfpredensi2$TotalGreix_g)
+dfpredensi2$TotalMagra_g <- dfpredensi2$TotalMagra_g / max(dfpredensi2$TotalMagra_g)
+dfpredensi2$TotalTeixit_g <- dfpredensi2$TotalTeixit_g / max(dfpredensi2$TotalTeixit_g)
+```
+
+```{r}
+resultats<-lapply(variablesdensi, function(var) {distr(dfpredensi2[[var]])})
+millorsdistdensi<-lapply(resultats, function(df) rownames(df[1,]))
+
+distribucionsdensi<-data.frame(
+  variable = variablesdensi,
+  distribution = unlist(millorsdistdensi),
+  data = "dfpredensi")
+
+
+distribucions<-rbind(distribucionseco, distribucionsdensi)
+distribucions
+```
+
+```{r}
+plots <- list()
+
+# Talla Distribution
+df1 <- fitdist(dfpreeco$Talla, distr = "weibull")
+plot1 <- ggplot(data = dfpreeco) +
+  geom_histogram(aes(x = Talla, y = after_stat(density)),
+                 bins = 40,
+                 alpha = 0.3, color = "black") +
+  geom_rug(aes(x = Talla)) +
+  stat_function(fun = function(x) { dweibull(x, df1$estimate[1], df1$estimate[2]) },
+                aes(color = "weibull"),  
+                size = 1) +
+  scale_color_manual(breaks = "weibull",
+                     values = c("weibull" = "pink")) + 
+  labs(title = "Distribució Talla",
+       color = "Distribució") +
+  theme_bw() +
+  theme(legend.position = "bottom")
+
+plots[[1]] <- plot1
+
+# Pes Distribution
+df2 <- fitdist(dfpreeco$Pes, distr = "weibull")
+plot2 <- ggplot(data = dfpreeco) +
+  geom_histogram(aes(x = Pes, y = after_stat(density)),
+                 bins = 40,
+                 alpha = 0.3, color = "black") +
+  geom_rug(aes(x = Talla)) +
+  stat_function(fun = function(x) { dweibull(x, df2$estimate[1],  df2$estimate[2]) },
+                aes(color = "weibull"),  
+                size = 1) +
+  scale_color_manual(breaks = "weibull",
+                     values = c("weibull" = "pink")) + 
+  labs(title = "Distribució Pes",
+       color = "Distribució") +
+  theme_bw() +
+  theme(legend.position = "bottom")
+
+plots[[2]] <- plot2
+
+# Diam_aorta Distribution
+df3 <- fitdist(dfpreeco$Diam_aorta, distr = "gamma")
+plot3 <- ggplot(data = dfpreeco) +
+  geom_histogram(aes(x = Diam_aorta, y = after_stat(density)),
+                 bins = 40,
+                 alpha = 0.3, color = "black") +
+  geom_rug(aes(x = Diam_aorta)) +
+  stat_function(fun = function(x) { dgamma(x, df3$estimate[1], df3$estimate[2]) },
+                aes(color = "gamma"),  
+                size = 1) +
+  scale_color_manual(breaks = "gamma",
+                     values = c("gamma" = "blue")) + 
+  labs(title = "Distribution Diam_aorta",
+       color = "Distribution") +
+  theme_bw() +
+  theme(legend.position = "bottom")
+
+plots[[3]] <- plot3
+
+# Auricula_esq Distribution
+df4 <- fitdist(dfpreeco$Auricula_esq, distr = "norm")
+plot4 <- ggplot(data = dfpreeco) +
+  geom_histogram(aes(x = Auricula_esq, y = after_stat(density)),
+                 bins = 40,
+                 alpha = 0.3, color = "black") +
+  geom_rug(aes(x = Auricula_esq)) +
+  stat_function(fun = function(x) { dnorm(x, df4$estimate[1], df4$estimate[2]) },
+                aes(color = "norm"),  
+                size = 1) +
+  scale_color_manual(breaks = "norm",
+                     values = c("norm" = "green")) + 
+  labs(title = "Distribution Auricula_esq",
+       color = "Distribution") +
+  theme_bw() +
+  theme(legend.position = "bottom")
+
+plots[[4]] <- plot4
+
+
+# Arrange plots in a grid
+grid.arrange(grobs = plots, ncol = 2)
+
+```
+
+## Graphical Techniques for Distribution Fitting: Q-Q Plot
+
+We could perform goodness-of-fit tests to evaluate if the variable follows the chosen distribution by applying specific statistical tests for each distribution. The tests will propose the null hypothesis that the sample comes from a certain distribution; the alternative hypothesis says that it does not follow such distribution. Therefore:
+
+H0: The distribution is x
+H1: The distribution is not x
+
+Once a significance level is chosen, the test attempts to reject H0. This will happen if and only if p-value ≤ α. Thus, if p-value < α, we will accept H1 with risk α.
+
+Conversely, when p-value > α, you do not have empirical evidence to reject H0 of equality between the theoretical and empirical distribution.
+
+To perform the tests, we must consider that the data are correlated with each other, as most goodness-of-fit tests assume independence. Additionally, we would have to perform 4 types of different tests, one for each distribution: normal, Weibull, gamma, and inv-gamma. For all these reasons, we have opted to use graphical adjustment techniques such as the Q-Q plot.
+
+
+```{r}
+library(univariateML)
+distribucions <- c( univariateML::mlnorm, univariateML::mlexp,  univariateML::mlinvgamma,  univariateML::mlgamma,  univariateML::mlgumbel,  univariateML::mllnorm,  univariateML::mlrayleigh,  univariateML::mlinvgauss,  univariateML::mlweibull,  univariateML::mlinvweibull)
+
+distr<-function(x){
+    comparacio <- lapply(distribucions, function(dist) {
+    ajuste <- dist(x)
+    c(AIC(ajuste), BIC(ajuste)) })
+  
+  comparacio<-as.data.frame(comparacio)%>% t() 
+  rownames(comparacio) <- c("norm", "exp", "invgamma", "gamma", "gumbel", "lnorm", "rayleigh", "invgauss", "weibull", "invweibull") 
+  colnames(comparacio)<-c("AIC","BIC")
+  comparacio<-as.data.frame(comparacio) %>%  dplyr::arrange(AIC)
+  return(comparacio)
+}
+
+variablesdensi2<- c("TotalCMO_g","TotalTeixit_g")
+variableseco2<- c("Pes","Diam_aorta")
+resultats<-lapply(variablesdensi2, function(var) {distr(dfpredensi2[[var]])})
+millorsdistdensi<-lapply(resultats, function(df) rownames(df[1,]))
+
+distribucionsdensi2<-data.frame(
+  variable = variablesdensi2,
+  distribution = unlist(millorsdistdensi),
+  data = "dfpredensi")
+
+resultats<-lapply(variableseco2, function(var) {distr(dfpreeco[[var]])})
+millorsdisteco<-lapply(resultats, function(df) rownames(df[1,]))
+
+distribucionseco2<-data.frame(
+  variable = variableseco2,
+  distribution = unlist(millorsdisteco) ,
+  data = "dfpreeco")
+
+distribucions<-rbind(distribucionseco, distribucionsdensi)
+distribucions2<-rbind(distribucionseco2, distribucionsdensi2)
+distribucions2
+```
+
+The Q-Q (Quantile-Quantile) plot allows us to visually compare the empirical distribution with the theoretical one. In this graph, the observed quantiles of the sample will be compared with the expected quantiles of the theoretical distribution.
+The closer the points of the graph are to the diagonal, the more similar the two distributions are. For example, for the normal distribution:
+
+```{r}
+#Normal
+QQplot_normal <- function(data, variable) {
+  x <- sort(data[[variable]])
+  
+  # Theoretical quantiles
+  n <- length(x)
+  k <- c(1:n)
+  y <- qnorm(k / (n + 1))
+  
+  # Create the plot
+  plot(y, x, main = variable, xlab = 'Distribució teòrica normal', ylab = 'Distribució mostral', col = "steelblue")
+  abline(h = 0, v = 0, col = "gray")
+  qqline (x, col = 'red', lwd = 2, lty = 2)
+}
+
+QQplot_normal(data = dfpreeco, variable = "Talla")
+```
+For other distributions, we will use the qqcomp function:
+
+```{r, warning=FALSE, fig.width=8, fig.height=3}
+distgraf <- function(data, variable) {
+  x <- data[[variable]]
+  fit.weibull <- fitdist(x, "weibull")
+  fit.gamma <- fitdist(x, "gamma", lower = c(0, 0))
+  fit.normal <- fitdist(x, "norm")
+  fit.invgamma <- fitdist(x, "invgamma")
+  
+  par(mfrow = c(1,3))
+  plot.legend <- c("Weibull", "Gamma", "Normal", "Invgamma")
+  
+  denscomp(list(fit.weibull, fit.gamma, fit.normal, fit.invgamma), 
+            fitcol = c("red", "blue", "green", "orange"), 
+            legendtext = plot.legend, 
+            main = paste("Histograma i densitat teòrica\n", variable))
+  
+  qqcomp(list(fit.weibull, fit.gamma, fit.normal, fit.invgamma ), 
+          fitcol = c("red", "blue", "green", "orange"), 
+          legendtext = plot.legend, 
+          main = paste("Q-Q plot\n", variable))
+  
+  cdfcomp(list(fit.weibull, fit.gamma, fit.normal, fit.invgamma ), 
+          fitcol = c("red", "blue", "green", "orange"), 
+          legendtext = plot.legend, 
+          main = paste("CDF teòrica i empírica\n", variable))
+}
+
+distgraf(dfpredensi, "TotalCMO_g")
+```
+```{r, warning=FALSE, fig.height=2, fig.width=7}
+distgraf <- function(data, variable, dist) {
+  x <- data[[variable]]
+  fit <- fitdist(x, dist, lower = c(0, 0))
+  denscomp(fit, 
+           fitcol = "red", 
+           main = paste("Hist i dens teòrica \n", variable))
+  qqcomp(fit, 
+         fitcol = "red", 
+         main = paste("Q-Q plot de\n", variable))
+}
+
+par(mfrow = c(1, 4))
+
+apply(distribucions2, 1, function(row) {
+  variable <- row["variable"]
+  distribution <- row["distribution"]
+  data_name <- row["data"]
+  data <- get(data_name)
+  
+  distgraf(data, variable, distribution)
+})
+```
+
+Note that a Q-Q plot is simply a way to visually verify if a dataset follows a theoretical distribution. To formally test if a dataset follows a particular distribution we can perform the tests.
+
+# Data Imbalance 
+
+```{r}
+table(dfpredensi$Sexe)
+table(dfpreeco$Sexe)
+```
+```{r}
+table(dfpredensi$Seccio)
+table(dfpreeco$Seccio)
+```
+Our data is longitudinal, so treating imbalance with oversampling or undersampling must be done with caution. It can affect the temporal structure of the data and the autocorrelation of observations.
+If observations are randomly eliminated or duplicated, this could introduce or alter the autocorrelation between observations, which is crucial in longitudinal data.
+
+We will start by eliminating underrepresented categories in Section:
+
+```{r}
+names <- names(table(dfpredensi$Seccio)[table(dfpredensi$Seccio) >= 100])
+dfpredensi <- dfpredensi[dfpredensi$Seccio %in% names, ]
+table(dfpredensi$Seccio)
+
+names <- names(table(dfpreeco$Seccio)[table(dfpreeco$Seccio) >= 200])
+dfpreeco <- dfpreeco[dfpreeco$Seccio %in% names, ]
+table(dfpreeco$Seccio)
+```
+
+Combine categories according to their similarity:
+
+```{r}
+# Combine: Futbol sala + handball -> Sala
+# Combine: Ice hockey + roller hockey -> Roller hockey
+# Eliminate athletics, field hockey
+
+dfpreeco$Seccio[dfpreeco$Seccio %in% c("FUTBOL SALA", "HANDBOL")] <- "SALA"
+dfpreeco$Seccio[dfpreeco$Seccio %in% c("HOQUEI GEL", "HOQUEI PATINS")] <- "HOQUEI PATINS"
+dfpreeco <- dfpreeco[!dfpreeco$Seccio %in% c("ATLETISME", "HOQUEI HERBA"), ]
+
+names <- names(table(dfpreeco$Seccio)[table(dfpreeco$Seccio) >= 200])
+dfpreeco <- dfpreeco[dfpreeco$Seccio %in% names, ]
+table(dfpreeco$Seccio)
+
+save(dfpredensi, file = "densitometriapre4.Rdata")
+save(dfpreeco, file = "ecocardiogramapre4.Rdata")
+```
+
+
+# Descriptive Analysis of Variables by Sex, Sport, and Age
+
+Now let's describe the densitometry variables by sex, sport (section), and age (by terciles).
+
+```{r, warning=FALSE, fig.cap=c("Boxplots variables densitometries-sexe")}
+df_bg <- dfpredensi %>% dplyr::select(ends_with("_g"), "Sexe") %>% dplyr::select(starts_with("Total"), "Sexe")
+ggplot(data = reshape2::melt(df_bg), aes(x = variable, y = value)) +
+  geom_boxplot(aes(fill=Sexe)) +
+  labs(x = "Variables", y = "grams", title = "Boxplots variables totals segons Sexe")+ 
+  theme(axis.text.x = element_text(angle = 75, hjust = 1))
+```
+
+```{r, warning=FALSE, fig.cap=c("Boxplots variables total-Edat")}
+df_bg <- dfpredensi %>% dplyr::select(ends_with("_g"), "Tercil_Edat") %>% dplyr::select(starts_with("Total"), "Tercil_Edat")
+ggplot(data = reshape2::melt(df_bg), aes(x = variable, y = value)) +
+  geom_boxplot(aes(fill=Tercil_Edat)) +
+  labs(x = "Variables", y = "grams", title = "Boxplots variables totals segons Edat")+ 
+  theme(axis.text.x = element_text(angle = 75, hjust = 1))
+```
+
+
+```{r, warning=FALSE,  fig.cap=c("Boxplots variables total-Seccio")}
+df_bg <- dfpredensi %>% dplyr::select(ends_with("_g"), "Seccio") %>% dplyr::select(starts_with("Total"), "Seccio")
+ggplot(data = reshape2::melt(df_bg), aes(x = variable, y = value)) +
+  geom_boxplot(aes(fill=Seccio)) +
+  labs(x = "Variables", y = "grams", title = "Boxplots variables totals segons Seccio")+ 
+  theme(axis.text.x = element_text(angle = 75, hjust = 1))
+
+df_eco <- dfpreeco %>% dplyr::select(c( "Pes", "Talla", "Seccio")) 
+ggplot(data = reshape2::melt(df_eco), aes(x = variable, y = value)) +
+  geom_boxplot(aes(fill=Seccio)) +
+  labs(x = "Variables", title = "Boxplots variables eco segons Seccio")+ 
+  theme(axis.text.x = element_text(angle = 75, hjust = 1))
+```
+
+If we wanted to describe a specific variable, for example, Gruix_tabic, according to age, sex, section, and year:
+
+```{r,warning=FALSE,  fig.cap=c("Total Greix Edat-Sexe", "Total Greix Secció-Sexe", "Total Greix Secció-Edat")}
+
+ggplot(data = dfpredensi, aes(x=Tercil_Edat, y=TotalGreix_g)) + 
+    geom_boxplot(aes(fill=Sexe))+
+    labs(title = "Edat-Sexe", y = "Total Greix (g)", x = "Edat") +
+    theme(axis.text = element_text(color = "blue"))
+ggplot(data = dfpredensi, aes(x=Seccio, y=TotalGreix_g)) + 
+    geom_boxplot(aes(fill=Sexe))+
+    labs(title = "Secció-Sexe", y = "Total Greix (g)", x = "Seccio") +
+    theme(axis.text = element_text(color = "blue"))+
+    theme(axis.text.x = element_text(size = 6, angle = 80, face = "bold"))
+
+ggplot(data = dfpredensi, aes(x=Seccio, y=TotalGreix_g)) + 
+    geom_boxplot(aes(fill=Tercil_Edat))+
+    labs(title = "Secció-Edat", y = "Total Greix (g)", x = "Seccio") +
+    theme(axis.text = element_text(color = "blue"))+
+    theme(axis.text.x = element_text(size = 6, angle = 80, face = "bold"))
+
+```
+
+```{r, warning=FALSE}
+intervals <- seq(0, ceiling(max(dfpredensi$Edat) / 5) * 5, by = 5)
+etiquetes<- paste(intervals[-length(intervals)], "-", intervals[-1], sep = "")
+dfpredensi$Edat_Anys <- cut(dfpredensi$Edat, breaks = intervals, labels = etiquetes, include.lowest = TRUE)
+
+ggplot(data = dfpredensi, aes(x=Sexe, y=TotalGreix_g)) +
+  geom_boxplot(aes(fill=Sexe)) +
+  labs(title = "Sexe-Edat", y = "Total Greix (g)", x = "Edat") +
+  theme(axis.text = element_text(color = "blue")) +
+  theme(axis.text.x = element_text(size = 6, angle = 80, face = "bold")) +
+  facet_wrap(~Edat_Anys, nrow = 1) 
+```
+```{r, include= FALSE}
+save(dfpreeco, file = "densitometriapre3.Rdata")
+save(dfpredensi, file = "ecocardiogramapre3.Rdata")
+objetos <- Filter(function(x) x != "dfpreeco" & x != "dfpredensi", ls())
+rm(list = objetos)
+```
